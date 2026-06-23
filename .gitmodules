@@ -13,3 +13,6 @@
 [submodule "thirdparty/OpenTimer"]
 	path = thirdparty/OpenTimer
 	url = https://github.com/enzoleo/OpenTimer.git
+[submodule "thirdparty/InstantGR"]
+	path = thirdparty/InstantGR
+	url = https://github.com/cuhk-eda/InstantGR
