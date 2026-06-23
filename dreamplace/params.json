@@ -232,6 +232,162 @@
     "description" : "whether require run-to-run determinism, may have efficiency overhead", 
     "default" : 0
     },
+"ruplace_flag" : {
+    "description" : "enable RUPlace unified routability optimization",
+    "default" : 0
+    },
+"ruplace_xplace_root" : {
+    "description" : "path to Xplace repository used as external GPU-router adapter",
+    "default" : "../Xplace"
+    },
+"ruplace_router_backend" : {
+    "description" : "GPU router backend for standalone GPUGR/RUPlace; supported values are xplace and instantgr",
+    "default" : "xplace"
+    },
+"ruplace_instantgr_root" : {
+    "description" : "path to optional InstantGR third-party repository",
+    "default" : "thirdparty/InstantGR"
+    },
+"ruplace_instantgr_binary" : {
+    "description" : "path to optional InstantGR executable; empty uses ruplace_instantgr_root/run/InstantGR",
+    "default" : ""
+    },
+"ruplace_instantgr_cap_input" : {
+    "description" : "native InstantGR .cap input for standalone instantgr backend; LEF/DEF export is not implemented in v1",
+    "default" : ""
+    },
+"ruplace_instantgr_net_input" : {
+    "description" : "native InstantGR .net input for standalone instantgr backend; LEF/DEF export is not implemented in v1",
+    "default" : ""
+    },
+"ruplace_gr_rrr_iters" : {
+    "description" : "GGR rip-up and reroute iterations for RUPlace route evaluations",
+    "default" : 1
+    },
+"ruplace_route_gpu" : {
+    "description" : "CUDA device id used by the Xplace GPU-router adapter",
+    "default" : 0
+    },
+"ruplace_external_route_eval" : {
+    "description" : "run Xplace GGR in a subprocess to avoid CUDA context corruption during placement",
+    "default" : 1
+    },
+"ruplace_inflate_start_overflow" : {
+    "description" : "density overflow threshold to start RUPlace inflation; negative uses node_area_adjust_overflow",
+    "default" : 0.2
+    },
+"ruplace_max_inflate_ratio" : {
+    "description" : "maximum cell inflation ratio used by RUPlace",
+    "default" : 2.0
+    },
+"ruplace_min_inflate_ratio" : {
+    "description" : "minimum cumulative cell inflation ratio used by RUPlace local adjustment",
+    "default" : 1.0
+    },
+"ruplace_global_inflate_gamma" : {
+    "description" : "damping factor for RUPlace global clustered inflation",
+    "default" : 0.35
+    },
+"ruplace_global_cluster_mode" : {
+    "description" : "global RUPlace inflation aggregation mode: mean, max, or none",
+    "default" : "mean"
+    },
+"ruplace_global_util_exponent" : {
+    "description" : "exponent applied to global route utilization excess before RUPlace inflation",
+    "default" : 1.0
+    },
+"ruplace_local_inflate_gamma" : {
+    "description" : "smoothing factor for RUPlace local cell area adjustment",
+    "default" : 0.15
+    },
+"ruplace_inflate_area_cap" : {
+    "description" : "maximum movable-area growth fraction per RUPlace inflation round",
+    "default" : 0.01
+    },
+"ruplace_inflate_extra_capacity" : {
+    "description" : "extra movable-area budget allowed for RUPlace inflation when filler whitespace is unavailable",
+    "default" : 0.0
+    },
+"ruplace_congested_uniform_inflate_ratio" : {
+    "description" : "fallback uniform inflation ratio when GGR reports congestion but center-bin utilization gives no positive inflation target",
+    "default" : 1.0
+    },
+"ruplace_node_util_window" : {
+    "description" : "neighboring routing-bin radius used to max-smooth RUPlace node utilization before inflation",
+    "default" : 0
+    },
+"ruplace_node_util_blend" : {
+    "description" : "blend between center-bin and max-smoothed utilization when ruplace_node_util_window is positive",
+    "default" : 1.0
+    },
+"ruplace_hv_inflate_gamma" : {
+    "description" : "extra inflation pressure from H/V route overflow maps; 0 disables directional H/V-aware inflation",
+    "default" : 0.0
+    },
+"ruplace_hv_inflate_mode" : {
+    "description" : "how to combine horizontal and vertical overflow for H/V-aware inflation: max, mean, sum, h, or v",
+    "default" : "max"
+    },
+"ruplace_local_inflate_max_rounds" : {
+    "description" : "maximum RUPlace local inflation rounds",
+    "default" : 0
+    },
+"ruplace_allow_shrink" : {
+    "description" : "allow RUPlace local adjustment to shrink over-inflated cells back toward the minimum inflation ratio",
+    "default" : 0
+    },
+"ruplace_local_congestion_stop" : {
+    "description" : "route overflow threshold to stop RUPlace local inflation",
+    "default" : 0.01
+    },
+"ruplace_local_ovfl_nets_stop" : {
+    "description" : "maximum overflow-net count treated as congestion-free for RUPlace local inflation",
+    "default" : 0
+    },
+"ruplace_local_est_shorts_stop" : {
+    "description" : "maximum estimated-short count treated as congestion-free for RUPlace local inflation",
+    "default" : 0
+    },
+"ruplace_admm_start_overflow" : {
+    "description" : "density overflow threshold to start RUPlace ADMM routed-wire refinement",
+    "default" : 0.2
+    },
+"ruplace_admm_route_freq" : {
+    "description" : "placement iterations between RUPlace ADMM route refreshes",
+    "default" : 200
+    },
+"ruplace_admm_apply_freq" : {
+    "description" : "placement iterations between applying RUPlace ADMM route gradients",
+    "default" : 1
+    },
+"ruplace_admm_weight" : {
+    "description" : "weight for RUPlace routed-wire ADMM gradient",
+    "default" : 1.0
+    },
+"ruplace_admm_weight_decay" : {
+    "description" : "multiplicative decay applied to RUPlace ADMM gradient weight after each application",
+    "default" : 1.0
+    },
+"ruplace_admm_min_weight" : {
+    "description" : "minimum RUPlace ADMM gradient weight after decay; 0 disables the floor",
+    "default" : 0.0
+    },
+"ruplace_admm_grad_clip_norm" : {
+    "description" : "global norm used to clip RUPlace ADMM route gradients before weighting; 0 disables clipping",
+    "default" : 0.0
+    },
+"ruplace_admm_anchor_weight" : {
+    "description" : "anchor penalty weight for RUPlace ADMM route gradient",
+    "default" : 0.1
+    },
+"ruplace_admm_anchor_update" : {
+    "description" : "anchor update policy for RUPlace ADMM route gradient: refresh, static, or ema",
+    "default" : "refresh"
+    },
+"ruplace_admm_anchor_decay" : {
+    "description" : "EMA decay for RUPlace ADMM anchor update when ruplace_admm_anchor_update is ema",
+    "default" : 0.9
+    },
 "timing_opt_flag" : {
     "description" : "whether to turn on timing-driven optimization flag in global placement",
     "default" : 0

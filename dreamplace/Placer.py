@@ -30,6 +30,13 @@ def place(params, learning_rate_value):
     @param params parameters
     """
 
+    if getattr(params, "ruplace_flag", 0):
+        if not params.def_input or not params.lef_input:
+            raise RuntimeError("RUPlace currently requires LEF/DEF input")
+        params.routability_opt_flag = 1
+        if not params.gpu:
+            raise RuntimeError("RUPlace requires GPU mode for Xplace GGR")
+
     assert (not params.gpu) or configure.compile_configurations["CUDA_FOUND"] == 'TRUE', \
             "CANNOT enable GPU without CUDA compiled"
 

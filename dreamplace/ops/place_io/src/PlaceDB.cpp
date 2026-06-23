@@ -33,6 +33,31 @@ using namespace boost::polygon::operators;
 
 DREAMPLACE_BEGIN_NAMESPACE
 
+namespace {
+
+bool hasVerilogRange(VerilogParser::Range const& range) {
+  // Limbo uses INT_MIN for "no range"; some escaped scalar names can also
+  // arrive with parser-artifact negative values. Treat only practical bit
+  // ranges as real ranges.
+  return range.low >= 0 && range.high >= 0 && range.low < 1000000 &&
+         range.high < 1000000;
+}
+
+std::string canonicalVerilogScalarName(std::string const& name,
+                                       VerilogParser::Range const& range) {
+  std::string out = name;
+  if (!out.empty() && out[0] == '\\') {
+    out.erase(out.begin());
+  }
+  if (hasVerilogRange(range)) {
+    dreamplaceAssertMsg(range.low == range.high, "do not support bus yet");
+    out += "[" + std::to_string(range.low) + "]";
+  }
+  return out;
+}
+
+}  // namespace
+
 /// default constructor
 PlaceDB::PlaceDB() {
   m_coreSiteId = 0;
@@ -839,32 +864,52 @@ void PlaceDB::verilog_module_declaration_cbk(std::string const& module_name,
 } 
 void PlaceDB::verilog_net_declare_cbk(std::string const& netName,
                                       VerilogParser::Range const& range) {
-  dreamplaceAssertMsg(range.low == range.high, "do not support bus yet");
+  if (hasVerilogRange(range) && range.low != range.high) {
+    int step = range.low <= range.high ? 1 : -1;
+    for (int bit = range.low; bit != range.high + step; bit += step) {
+      std::string scalarName =
+          canonicalVerilogScalarName(netName, VerilogParser::Range(bit, bit));
+      std::pair<index_type, bool> insertNetRet = addNet(scalarName);
+      if (!insertNetRet.second)
+        dreamplacePrint(kWARN, "duplicate net found in Verilog file: %s\n",
+                        scalarName.c_str());
+    }
+    return;
+  }
 
-  std::pair<index_type, bool> insertNetRet = addNet(netName);
+  std::string scalarName = canonicalVerilogScalarName(netName, range);
+  std::pair<index_type, bool> insertNetRet = addNet(scalarName);
   // check duplicate
   if (!insertNetRet.second)
     dreamplacePrint(kWARN, "duplicate net found in Verilog file: %s\n",
-                    netName.c_str());
+                    scalarName.c_str());
 }
 void PlaceDB::verilog_pin_declare_cbk(std::string const& pinName,
                                       unsigned /*type*/,
                                       VerilogParser::Range const& range) {
+  if (hasVerilogRange(range) && range.low != range.high) {
+    int step = range.low <= range.high ? 1 : -1;
+    for (int bit = range.low; bit != range.high + step; bit += step) {
+      verilog_pin_declare_cbk(pinName, 0, VerilogParser::Range(bit, bit));
+    }
+    return;
+  }
+
+  std::string scalarName = canonicalVerilogScalarName(pinName, range);
   // find virtual node for io pin
   index_type nodeId;
   string2index_map_type::const_iterator foundNode =
-      m_mNodeName2Index.find(pinName);
+      m_mNodeName2Index.find(scalarName);
   if (foundNode != m_mNodeName2Index.end())
     nodeId = foundNode->second;
   else {
-    dreamplacePrint(kWARN, "IO pin not found: %s\n", pinName.c_str());
+    dreamplacePrint(kWARN, "IO pin not found: %s\n", scalarName.c_str());
     return;
   }
   Node& node = m_vNode[nodeId];
 
   // for io pin, it has the net with the same name as pin name
-  std::string const& netName = pinName;
-  dreamplaceAssertMsg(range.low == range.high, "do not support bus yet");
+  std::string const& netName = scalarName;
 
   // for io pin, the net name is the same as pin name
   std::pair<index_type, bool> insertNetRet = addNet(netName);
@@ -877,25 +922,35 @@ void PlaceDB::verilog_pin_declare_cbk(std::string const& pinName,
   Net& net = m_vNet.at(insertNetRet.first);
   // add pin
   // macro pin name for virtual node is the same as pin name
-  addPin(pinName, net, node);
+  addPin(scalarName, net, node);
 }
 void PlaceDB::verilog_instance_cbk(
     std::string const& macroName, std::string const& instName,
     std::vector<VerilogParser::NetPin> const& vNetPin) {
   string2index_map_type::iterator foundNode = m_mNodeName2Index.find(instName);
-  dreamplaceAssertMsg(foundNode != m_mNodeName2Index.end(),
-                      "failed to find instance name %s", instName.c_str());
+  if (foundNode == m_mNodeName2Index.end()) {
+    dreamplacePrint(kWARN, "instance not found in DEF, skipped: %s\n",
+                    instName.c_str());
+    return;
+  }
   Node& node = m_vNode.at(foundNode->second);
   Macro const& macro = m_vMacro.at(macroId(node));
-  dreamplaceAssertMsg(macro.name() == macroName, "macro name mismatch %s != %s",
-                      macroName.c_str(), macro.name().c_str());
+  if (macro.name() != macroName) {
+    dreamplacePrint(kWARN, "macro name mismatch for %s, skipped: %s != %s\n",
+                    instName.c_str(), macroName.c_str(), macro.name().c_str());
+    return;
+  }
   for (std::vector<VerilogParser::NetPin>::const_iterator it = vNetPin.begin(),
                                                           ite = vNetPin.end();
        it != ite; ++it) {
     VerilogParser::NetPin const& np = *it;
-    string2index_map_type::iterator foundNet = m_mNetName2Index.find(np.net);
-    dreamplaceAssertMsg(foundNet != m_mNetName2Index.end(),
-                        "failed to find net %s", np.net.c_str());
+    std::string netName = canonicalVerilogScalarName(np.net, np.range);
+    string2index_map_type::iterator foundNet = m_mNetName2Index.find(netName);
+    if (foundNet == m_mNetName2Index.end()) {
+      dreamplacePrint(kWARN, "net not found, skipped pin %s/%s: %s\n",
+                      instName.c_str(), np.pin.c_str(), netName.c_str());
+      continue;
+    }
     Net& net = m_vNet.at(foundNet->second);
 
     // add pin

@@ -32,6 +32,7 @@ import dreamplace.ops.pin_utilization.pin_utilization as pin_utilization
 import dreamplace.ops.nctugr_binary.nctugr_binary as nctugr_binary
 import dreamplace.ops.adjust_node_area.adjust_node_area as adjust_node_area
 import dreamplace.ops.gift_init.gift_init as gift_init
+from dreamplace.ops.routability_opt import build_routability_opt_op
 
 
 class PreconditionOp:
@@ -253,11 +254,16 @@ class PlaceObj(nn.Module):
                 params, placedb, self.data_collections)
             self.op_collections.pin_utilization_map_op = self.build_pin_utilization_map(
                 params, placedb, self.data_collections)
-            self.op_collections.nctugr_congestion_map_op = self.build_nctugr_congestion_map(
-                params, placedb, self.data_collections)
+            if params.adjust_nctugr_area_flag:
+                self.op_collections.nctugr_congestion_map_op = self.build_nctugr_congestion_map(
+                    params, placedb, self.data_collections)
             # adjust instance area with congestion map
             self.op_collections.adjust_node_area_op = self.build_adjust_node_area(
                 params, placedb, self.data_collections)
+            if getattr(params, "ruplace_flag", 0):
+                self.op_collections.routability_opt_op = build_routability_opt_op(
+                    params, placedb, self.data_collections)
+                self.op_collections.ruplace_controller = self.op_collections.routability_opt_op
 
         # GiFt initialization 
         if params.global_place_flag and params.gift_init_flag: 
@@ -405,6 +411,9 @@ class PlaceObj(nn.Module):
 
         if obj.requires_grad:
           obj.backward()
+
+        if getattr(self.params, "ruplace_flag", 0) and self.op_collections.routability_opt_op is not None:
+            self.op_collections.routability_opt_op.apply_gradient(pos, self)
 
         self.op_collections.precondition_op(pos.grad, self.density_weight, self.update_mask, self.fix_nodes_mask)
 
@@ -1039,9 +1048,12 @@ class PlaceObj(nn.Module):
         total_movable_area = (
             data_collections.node_size_x[:placedb.num_movable_nodes] *
             data_collections.node_size_y[:placedb.num_movable_nodes]).sum()
-        total_filler_area = (
-            data_collections.node_size_x[-placedb.num_filler_nodes:] *
-            data_collections.node_size_y[-placedb.num_filler_nodes:]).sum()
+        if placedb.num_filler_nodes > 0:
+            total_filler_area = (
+                data_collections.node_size_x[-placedb.num_filler_nodes:] *
+                data_collections.node_size_y[-placedb.num_filler_nodes:]).sum()
+        else:
+            total_filler_area = total_movable_area.new_tensor(0.0)
         total_place_area = (total_movable_area + total_filler_area
                             ) / data_collections.target_density
         adjust_node_area_op = adjust_node_area.AdjustNodeArea(
@@ -1148,6 +1160,3 @@ class PlaceObj(nn.Module):
 
         self.op_collections.fence_region_density_overflow_merged_op = merged_density_overflow_op
         return self.op_collections.fence_region_density_ops, self.op_collections.fence_region_density_merged_op, self.op_collections.fence_region_density_overflow_merged_op
-
-
-

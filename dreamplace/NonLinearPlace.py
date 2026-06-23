@@ -712,9 +712,35 @@ class NonLinearPlace(BasicPlace.BasicPlace):
                         if Llambda_stop_criterion(Lgamma_step, Llambda_density_weight_step, Llambda_metrics):
                             break
 
+                        # RUPlace cell inflation driven by the GPUGR backend.
+                        if (
+                            getattr(params, "ruplace_flag", 0)
+                            and model.op_collections.routability_opt_op is not None
+                        ):
+                            pos = model.data_collections.pos[0]
+                            if model.op_collections.routability_opt_op.maybe_adjust_area(pos, model):
+                                if hasattr(model.op_collections.density_op, "reset"):
+                                    model.op_collections.density_op.reset()
+                                if hasattr(model.op_collections.density_overflow_op, "reset"):
+                                    model.op_collections.density_overflow_op.reset()
+                                if model.op_collections.pin_utilization_map_op is not None and hasattr(
+                                    model.op_collections.pin_utilization_map_op, "reset"
+                                ):
+                                    model.op_collections.pin_utilization_map_op.reset()
+                                model.initialize_density_weight(params, placedb)
+                                model.density_weight.mul_(0.1 / params.density_weight)
+                                logging.info("RUPlace density_weight = %.6E" % (model.density_weight.data))
+                                optimizer.load_state_dict(initial_state)
+                                initialize_learning_rate(pos)
+                                model.Lsub_iteration = model.routability_Lsub_iteration
+                                best_metric[0] = None
+                                best_pos[0] = None
+                                break
+
                         # for routability optimization
                         if (
                             params.routability_opt_flag
+                            and not getattr(params, "ruplace_flag", 0)
                             and num_area_adjust < params.max_num_area_adjust
                             and Llambda_metrics[-1][-1].overflow < params.node_area_adjust_overflow
                         ):

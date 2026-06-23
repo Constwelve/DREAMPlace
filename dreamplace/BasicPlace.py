@@ -248,6 +248,8 @@ class PlaceOpCollection(object):
         self.nctugr_congestion_map_op = None
         self.adjust_node_area_op = None
         self.gift_init_op = None 
+        self.routability_opt_op = None
+        self.ruplace_controller = None
 
 
 class BasicPlace(nn.Module):
