@@ -16,3 +16,7 @@
 [submodule "thirdparty/InstantGR"]
 	path = thirdparty/InstantGR
 	url = https://github.com/cuhk-eda/InstantGR
+[submodule "thirdparty/XplaceGPUGR"]
+	path = thirdparty/XplaceGPUGR
+	url = https://github.com/Constwelve/Xplace
+	branch = gpugr

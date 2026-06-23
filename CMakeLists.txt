@@ -137,8 +137,20 @@ if (CUDA_FOUND)
     endif(${CUDA_VERSION_MAJOR} VERSION_GREATER_EQUAL "12")
   endif(NOT CMAKE_CUDA_ARCHITECTURES)
 
-  # for cuda_add_library
-  cuda_select_nvcc_arch_flags(CUDA_ARCH_FLAGS ${CMAKE_CUDA_ARCHITECTURES})
+  # for cuda_add_library; FindCUDA expects legacy names (7.5) while CUDA
+  # language mode expects integer names (75).
+  set(_CUDA_SELECT_ARCHITECTURES ${CMAKE_CUDA_ARCHITECTURES})
+  set(_CUDA_SELECT_ARCHITECTURES_LEGACY "")
+  foreach(_cuda_arch ${_CUDA_SELECT_ARCHITECTURES})
+    if(_cuda_arch MATCHES "^[0-9][0-9]$")
+      string(SUBSTRING "${_cuda_arch}" 0 1 _cuda_arch_major)
+      string(SUBSTRING "${_cuda_arch}" 1 1 _cuda_arch_minor)
+      list(APPEND _CUDA_SELECT_ARCHITECTURES_LEGACY "${_cuda_arch_major}.${_cuda_arch_minor}")
+    else()
+      list(APPEND _CUDA_SELECT_ARCHITECTURES_LEGACY "${_cuda_arch}")
+    endif()
+  endforeach()
+  cuda_select_nvcc_arch_flags(CUDA_ARCH_FLAGS ${_CUDA_SELECT_ARCHITECTURES_LEGACY})
   message(STATUS "CUDA_ARCH_FLAGS: ${CUDA_ARCH_FLAGS}")
 
   # Manually add support for compute capability 12.0 (Blackwell)
@@ -150,6 +162,25 @@ if (CUDA_FOUND)
 
   list(APPEND CUDA_NVCC_FLAGS ${CUDA_ARCH_FLAGS} --compiler-options;-fPIC)
 endif(CUDA_FOUND)
+
+option(RUPLACE_ENABLE_GPUGR "Build the bundled Xplace GPUGR backend for RUPlace" ON)
+set(RUPLACE_GPUGR_CUDA_ARCHITECTURES "75;86" CACHE STRING "CUDA architectures for bundled GPUGR")
+if(RUPLACE_ENABLE_GPUGR)
+  if(CMAKE_VERSION VERSION_LESS 3.24)
+    message(FATAL_ERROR "RUPLACE_ENABLE_GPUGR requires CMake >= 3.24 because XplaceGPUGR enables CUDA as a language")
+  endif()
+  if(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/XplaceGPUGR/CMakeLists.txt)
+    message(FATAL_ERROR "thirdparty/XplaceGPUGR is missing; run git submodule update --init --recursive")
+  endif()
+  set(CMAKE_CUDA_ARCHITECTURES ${RUPLACE_GPUGR_CUDA_ARCHITECTURES} CACHE STRING "CUDA architectures" FORCE)
+  enable_language(CUDA)
+  set(XPLACE_BUILD_GPUGR_ONLY ON CACHE BOOL "Build only the GPUGR/IOParser backend needed by RUPlace" FORCE)
+  set(XPLACE_EMBEDDED_IN_DREAMPLACE ON CACHE BOOL "Build XplaceGPUGR inside DREAMPlace" FORCE)
+  set(XPLACE_INSTALL_PY_DEST dreamplace/ops/gpugr/xplace_gpugr CACHE STRING "Bundled GPUGR install root" FORCE)
+  set(XPLACE_INSTALL_LIB_DEST dreamplace/ops/gpugr/xplace_gpugr/cpp_to_py/cpybin CACHE STRING "Bundled GPUGR extension install root" FORCE)
+  set(XPLACE_LIB_DIR ${CMAKE_CURRENT_BINARY_DIR}/dreamplace/ops/gpugr/xplace_gpugr/cpp_to_py/cpybin CACHE PATH "Bundled GPUGR build output root" FORCE)
+  add_subdirectory(thirdparty/XplaceGPUGR)
+endif()
 
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/dreamplace/configure.py.in ${CMAKE_CURRENT_BINARY_DIR}/dreamplace/configure.py)
 
