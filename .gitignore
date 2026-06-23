@@ -13,3 +13,4 @@ install
 *.so
 .DS_Store
 .vscode/*
+configs/ruplace_taiwei_2d_netlists/

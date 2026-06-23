@@ -1,0 +1,58 @@
+{
+  "description": "Large non-TaiWei data cases for RUPlace validation. Enable only cases with proven Xplace GGR compatibility; full OpenC910/NVDLA_l/mempool DEFs are recorded but disabled due current evaluator crashes.",
+  "cases": [
+    {
+      "name": "tilos_nvdla_partition_c_floorplan",
+      "source": "tilos_nvdla",
+      "benchmark": "tilos",
+      "design_name": "NV_NVDLA_partition_c",
+      "lef_input": "/mnt/sda/yifan/benchmarks/TILOS/NV_NVDLA_partition_c/NV_NVDLA_partition_c.lef",
+      "def_input": "/mnt/sda/yifan/benchmarks/TILOS/NV_NVDLA_partition_c/NV_NVDLA_partition_c.floorplan.def",
+      "enabled": true,
+      "placement_enabled": true,
+      "notes": "Large tractable NVDLA partition case (~145k components). Validated with input GGR and 50-iteration DP/RUPlace in results/ruplace_quality/tilos_nvdla_partition_c_iter50_v1/raw_metrics.csv."
+    },
+    {
+      "name": "data_openc910_full_def",
+      "source": "data_large_2d",
+      "benchmark": "data_large",
+      "design_name": "ct_top",
+      "lef_input": [
+        "/mnt/nvme0n1/yifan/data/platforms/NanGate45/lef/NangateOpenCellLibrary.tech.lef",
+        "/mnt/nvme0n1/yifan/data/platforms/NanGate45/lef/NangateOpenCellLibrary.macro.mod.lef"
+      ],
+      "def_input": "/mnt/nvme0n1/yifan/data/openc910/scripts-rams-copy/def/ct_top.def",
+      "enabled": false,
+      "placement_enabled": false,
+      "notes": "Full OpenC910 2D DEF (~858k components, 438 MB). Disabled: Xplace GGR segfaults in data_large_openc910_full_def_input_ggr_v1."
+    },
+    {
+      "name": "data_nvdla_l_full_def",
+      "source": "data_large_2d",
+      "benchmark": "data_large",
+      "design_name": "NV_nvdla",
+      "lef_input": [
+        "/mnt/nvme0n1/yifan/data/platforms/NanGate45/lef/NangateOpenCellLibrary.tech.lef",
+        "/mnt/nvme0n1/yifan/data/platforms/NanGate45/lef/NangateOpenCellLibrary.macro.mod.lef"
+      ],
+      "def_input": "/mnt/nvme0n1/yifan/data/NVDLA_l/scripts-rams/def/NV_nvdla.def",
+      "enabled": false,
+      "placement_enabled": false,
+      "notes": "Full NVDLA_l 2D DEF (~2.24M components, 1.1 GB). Recorded but disabled; expected to hit same Xplace large-DEF crash as TaiWei NVDLA_l until evaluator is fixed."
+    },
+    {
+      "name": "data_mempool_group_full_def",
+      "source": "data_large_2d",
+      "benchmark": "data_large",
+      "design_name": "mempool_group",
+      "lef_input": [
+        "/mnt/nvme0n1/yifan/data/platforms/NanGate45/lef/NangateOpenCellLibrary.tech.lef",
+        "/mnt/nvme0n1/yifan/data/platforms/NanGate45/lef/NangateOpenCellLibrary.macro.mod.lef"
+      ],
+      "def_input": "/mnt/nvme0n1/yifan/data/mempool_group/scripts/cadence/def/mempool_group.def",
+      "enabled": false,
+      "placement_enabled": false,
+      "notes": "Full mempool_group 2D DEF (~2.47M components, 1.7 GB). Recorded but disabled until Xplace large-DEF evaluation is stabilized."
+    }
+  ]
+}

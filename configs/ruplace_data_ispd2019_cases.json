@@ -1,0 +1,115 @@
+{
+  "description": "Extra non-TaiWei data cases for RUPlace validation. Current enabled subset uses ISPD2019 LEF/DEF inputs from ~/data with Xplace GGR evaluation and DREAMPlace/RUPlace placement smoke.",
+  "cases": [
+    {
+      "name": "data_ispd19_test1",
+      "source": "data_ispd2019",
+      "benchmark": "ispd2019",
+      "design_name": "ispd19_test1",
+      "lef_input": "/mnt/nvme0n1/yifan/data/benchmarks/ispd2019/ispd19_test1/ispd19_test1.input.lef",
+      "def_input": "/mnt/nvme0n1/yifan/data/benchmarks/ispd2019/ispd19_test1/ispd19_test1.input.def",
+      "placement_enabled": true,
+      "enabled": true,
+      "notes": "Validated small ISPD2019 data case under ~/data; input GGR and 50-iteration DREAMPlace/RUPlace smoke pass."
+    },
+    {
+      "name": "data_ispd19_test2",
+      "source": "data_ispd2019",
+      "benchmark": "ispd2019",
+      "design_name": "ispd19_test2",
+      "lef_input": "/mnt/nvme0n1/yifan/data/benchmarks/ispd2019/ispd19_test2/ispd19_test2.input.lef",
+      "def_input": "/mnt/nvme0n1/yifan/data/benchmarks/ispd2019/ispd19_test2/ispd19_test2.input.def",
+      "placement_enabled": true,
+      "enabled": true,
+      "notes": "Validated medium ISPD2019 data case under ~/data; input GGR and 50-iteration DREAMPlace/RUPlace smoke pass. RUPlace slightly improves routed congestion versus DP RUDY in the smoke run."
+    },
+    {
+      "name": "data_ispd19_test3",
+      "source": "data_ispd2019",
+      "benchmark": "ispd2019",
+      "design_name": "ispd19_test3",
+      "lef_input": "/mnt/nvme0n1/yifan/data/benchmarks/ispd2019/ispd19_test3/ispd19_test3.input.lef",
+      "def_input": "/mnt/nvme0n1/yifan/data/benchmarks/ispd2019/ispd19_test3/ispd19_test3.input.def",
+      "placement_enabled": true,
+      "enabled": true,
+      "notes": "Validated small ISPD2019 data case under ~/data; input GGR and 50-iteration DREAMPlace/RUPlace smoke pass."
+    },
+    {
+      "name": "data_ispd19_test4",
+      "source": "data_ispd2019",
+      "benchmark": "ispd2019",
+      "design_name": "ispd19_test4",
+      "lef_input": "/mnt/nvme0n1/yifan/data/benchmarks/ispd2019/ispd19_test4/ispd19_test4.input.lef",
+      "def_input": "/mnt/nvme0n1/yifan/data/benchmarks/ispd2019/ispd19_test4/ispd19_test4.input.def",
+      "placement_enabled": false,
+      "enabled": false,
+      "notes": "Recorded future ISPD2019 data case; disabled by default to keep routine validation runtime bounded and until parser/GGR smoke is run."
+    },
+    {
+      "name": "data_ispd19_test5",
+      "source": "data_ispd2019",
+      "benchmark": "ispd2019",
+      "design_name": "ispd19_test5",
+      "lef_input": "/mnt/nvme0n1/yifan/data/benchmarks/ispd2019/ispd19_test5/ispd19_test5.input.lef",
+      "def_input": "/mnt/nvme0n1/yifan/data/benchmarks/ispd2019/ispd19_test5/ispd19_test5.input.def",
+      "placement_enabled": false,
+      "enabled": false,
+      "notes": "Disabled after smoke: Xplace GGR evaluation segfaults on this LEF/DEF in the current environment."
+    },
+    {
+      "name": "data_ispd19_test6",
+      "source": "data_ispd2019",
+      "benchmark": "ispd2019",
+      "design_name": "ispd19_test6",
+      "lef_input": "/mnt/nvme0n1/yifan/data/benchmarks/ispd2019/ispd19_test6/ispd19_test6.input.lef",
+      "def_input": "/mnt/nvme0n1/yifan/data/benchmarks/ispd2019/ispd19_test6/ispd19_test6.input.def",
+      "placement_enabled": false,
+      "enabled": false,
+      "notes": "Recorded future ISPD2019 data case; disabled by default to keep routine validation runtime bounded and until parser/GGR smoke is run."
+    },
+    {
+      "name": "data_ispd19_test7",
+      "source": "data_ispd2019",
+      "benchmark": "ispd2019",
+      "design_name": "ispd19_test7",
+      "lef_input": "/mnt/nvme0n1/yifan/data/benchmarks/ispd2019/ispd19_test7/ispd19_test7.input.lef",
+      "def_input": "/mnt/nvme0n1/yifan/data/benchmarks/ispd2019/ispd19_test7/ispd19_test7.input.def",
+      "placement_enabled": false,
+      "enabled": false,
+      "notes": "Recorded future ISPD2019 data case; disabled by default to keep routine validation runtime bounded and until parser/GGR smoke is run."
+    },
+    {
+      "name": "data_ispd19_test8",
+      "source": "data_ispd2019",
+      "benchmark": "ispd2019",
+      "design_name": "ispd19_test8",
+      "lef_input": "/mnt/nvme0n1/yifan/data/benchmarks/ispd2019/ispd19_test8/ispd19_test8.input.lef",
+      "def_input": "/mnt/nvme0n1/yifan/data/benchmarks/ispd2019/ispd19_test8/ispd19_test8.input.def",
+      "placement_enabled": false,
+      "enabled": false,
+      "notes": "Recorded future ISPD2019 data case; disabled by default to keep routine validation runtime bounded and until parser/GGR smoke is run."
+    },
+    {
+      "name": "data_ispd19_test9",
+      "source": "data_ispd2019",
+      "benchmark": "ispd2019",
+      "design_name": "ispd19_test9",
+      "lef_input": "/mnt/nvme0n1/yifan/data/benchmarks/ispd2019/ispd19_test9/ispd19_test9.input.lef",
+      "def_input": "/mnt/nvme0n1/yifan/data/benchmarks/ispd2019/ispd19_test9/ispd19_test9.input.def",
+      "placement_enabled": false,
+      "enabled": false,
+      "notes": "Recorded future ISPD2019 data case; disabled by default to keep routine validation runtime bounded and until parser/GGR smoke is run."
+    },
+    {
+      "name": "data_ispd19_test10",
+      "source": "data_ispd2019",
+      "benchmark": "ispd2019",
+      "design_name": "ispd19_test10",
+      "lef_input": "/mnt/nvme0n1/yifan/data/benchmarks/ispd2019/ispd19_test10/ispd19_test10.input.lef",
+      "def_input": "/mnt/nvme0n1/yifan/data/benchmarks/ispd2019/ispd19_test10/ispd19_test10.input.def",
+      "placement_enabled": false,
+      "enabled": false,
+      "notes": "Recorded future ISPD2019 data case; disabled by default to keep routine validation runtime bounded and until parser/GGR smoke is run."
+    }
+  ]
+}
