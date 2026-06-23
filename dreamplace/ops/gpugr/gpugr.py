@@ -2,7 +2,13 @@
 
 
 def build_gpugr_backend(params=None, backend=None, placedb=None, data_collections=None):
-    name = (backend or getattr(params, "ruplace_router_backend", "xplace") or "xplace").lower()
+    name = (backend or getattr(params, "ruplace_router_backend", "gpugr") or "gpugr").lower()
+    if name == "gpugr":
+        from dreamplace.ops.gpugr.gpugr_backend import BundledGPUGRBackend
+
+        if params is None or placedb is None or data_collections is None:
+            raise ValueError("Bundled GPUGR backend requires params, placedb, and data_collections")
+        return BundledGPUGRBackend(params, placedb, data_collections)
     if name == "xplace":
         from dreamplace.ops.gpugr.xplace_backend import XplaceGGRAdapter
 

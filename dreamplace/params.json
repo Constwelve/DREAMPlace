@@ -240,9 +240,13 @@
     "description" : "path to Xplace repository used as external GPU-router adapter",
     "default" : "../Xplace"
     },
+"ruplace_gpugr_root" : {
+    "description" : "path to bundled/built GPUGR root; empty auto-detects the installed DREAMPlace bundle",
+    "default" : ""
+    },
 "ruplace_router_backend" : {
-    "description" : "GPU router backend for standalone GPUGR/RUPlace; supported values are xplace and instantgr",
-    "default" : "xplace"
+    "description" : "GPU router backend for standalone GPUGR/RUPlace; supported values are gpugr, xplace, and instantgr",
+    "default" : "gpugr"
     },
 "ruplace_instantgr_root" : {
     "description" : "path to optional InstantGR third-party repository",

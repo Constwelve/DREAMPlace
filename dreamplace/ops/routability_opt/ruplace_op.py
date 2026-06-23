@@ -286,9 +286,9 @@ class RUPlaceController(object):
         self.placedb = placedb
         self.data_collections = data_collections
         backend = str(getattr(params, "ruplace_router_backend", "xplace")).lower()
-        if backend != "xplace":
+        if backend not in ("gpugr", "xplace"):
             raise RuntimeError(
-                "RUPlace routability optimization currently requires ruplace_router_backend=xplace; "
+                "RUPlace routability optimization requires ruplace_router_backend=gpugr or xplace; "
                 "InstantGR is available only through the standalone GPUGR op until LEF/DEF map export is implemented"
             )
         self.adapter = build_gpugr_backend(params, placedb=placedb, data_collections=data_collections)

@@ -10,12 +10,13 @@ from dreamplace.ops.gpugr.instantgr_backend import InstantGRBackend
 
 def main(argv=None):
     parser = argparse.ArgumentParser("Standalone DREAMPlace GPUGR frontend")
-    parser.add_argument("--backend", default="xplace", choices=["xplace", "instantgr"])
+    parser.add_argument("--backend", default="gpugr", choices=["gpugr", "xplace", "instantgr"])
     parser.add_argument("--design-name", required=True)
     parser.add_argument("--lef-input", action="append", default=[])
     parser.add_argument("--def-input", default="")
     parser.add_argument("--verilog-input", default="")
     parser.add_argument("--xplace-root", default="../Xplace")
+    parser.add_argument("--gpugr-root", default="")
     parser.add_argument("--cap-input", default="")
     parser.add_argument("--net-input", default="")
     parser.add_argument("--output-dir", default="")
@@ -26,14 +27,19 @@ def main(argv=None):
     parser.add_argument("--gpu", type=int, default=0)
     parser.add_argument("--num-threads", type=int, default=8)
     args = parser.parse_args(argv)
-    if args.backend == "xplace":
+    if args.backend in ("gpugr", "xplace"):
         from dreamplace.ops.gpugr.xplace_backend import _external_eval_main
 
         output = args.output or GPUGRRequest(design_name=args.design_name, output_dir=args.output_dir).output_path(
-            args.design_name + ".xplace_ggr.pt"
+            args.design_name + ".%s_ggr.pt" % args.backend
         )
         if not args.lef_input or not args.def_input:
-            raise RuntimeError("xplace backend requires --lef-input and --def-input")
+            raise RuntimeError("%s backend requires --lef-input and --def-input" % args.backend)
+        xplace_root = args.xplace_root
+        if args.backend == "gpugr":
+            from dreamplace.ops.gpugr.gpugr_backend import BundledGPUGRBackend
+
+            xplace_root = BundledGPUGRBackend.resolve_bundle_root(args.gpugr_root)
         cli = [
             "--ruplace-external-eval",
             "--def-input",
@@ -41,7 +47,7 @@ def main(argv=None):
             "--design-name",
             args.design_name,
             "--xplace-root",
-            args.xplace_root,
+            xplace_root,
             "--route-x-size",
             str(args.route_x_size),
             "--route-y-size",
