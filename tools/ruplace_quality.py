@@ -102,6 +102,15 @@ def parse_args():
             "--designs, all manifest cases are run."
         ),
     )
+    parser.add_argument(
+        "--manifest-path-map",
+        action="append",
+        default=[],
+        help=(
+            "Rewrite manifest path prefixes as OLD=NEW. May be repeated for "
+            "remote runs where local absolute benchmark paths are mirrored elsewhere."
+        ),
+    )
     parser.add_argument("--xplace-root", type=Path, default=REPO_ROOT / "../Xplace")
     parser.add_argument("--result-root", type=Path, default=REPO_ROOT / "results" / "ruplace_quality")
     parser.add_argument("--run-id", default="", help="Stable run id. Default: timestamp.")
@@ -134,6 +143,18 @@ def parse_args():
             "e.g. ispd18_test4.ruplace_local_inflate_max_rounds:1. "
             "Values are parsed as bool/int/float when possible."
         ),
+    )
+    parser.add_argument(
+        "--ruplace-router-backend",
+        choices=["xplace", "gpugr"],
+        default="xplace",
+        help="Router backend used inside RUPlace optimization; final metrics still use the shared Xplace GGR evaluator.",
+    )
+    parser.add_argument(
+        "--ruplace-gpugr-root",
+        type=Path,
+        default=None,
+        help="Optional bundled GPUGR root for --ruplace-router-backend=gpugr.",
     )
     parser.add_argument("--stop-overflow", type=float, default=0.15)
     parser.add_argument("--route-rrr-iters", type=int, default=1)
@@ -284,8 +305,31 @@ def expand_designs(suite, designs):
     return list(PILOT_DESIGNS if suite == "pilot" else FULL_DESIGNS)
 
 
-def _resolve_manifest_path(value, base_dir):
-    path = Path(os.path.expandvars(os.path.expanduser(str(value))))
+def _apply_path_maps(value, path_maps):
+    text = os.path.expandvars(os.path.expanduser(str(value)))
+    for old, new in path_maps or []:
+        if text == old or text.startswith(old.rstrip("/") + "/"):
+            return new.rstrip("/") + text[len(old.rstrip("/")) :]
+    return text
+
+
+def parse_path_maps(specs):
+    maps = []
+    for spec in specs or []:
+        if "=" not in spec:
+            raise ValueError("--manifest-path-map must use OLD=NEW form, got %s" % spec)
+        old, new = spec.split("=", 1)
+        maps.append(
+            (
+                os.path.expandvars(os.path.expanduser(old.rstrip("/"))),
+                os.path.expandvars(os.path.expanduser(new.rstrip("/"))),
+            )
+        )
+    return maps
+
+
+def _resolve_manifest_path(value, base_dir, path_maps=None):
+    path = Path(_apply_path_maps(value, path_maps))
     if not path.is_absolute():
         path = base_dir / path
     return path.resolve()
@@ -299,10 +343,10 @@ def _as_list(value):
     return [value]
 
 
-def _resolve_manifest_globs(patterns, base_dir):
+def _resolve_manifest_globs(patterns, base_dir, path_maps=None):
     paths = []
     for pattern in _as_list(patterns):
-        raw = Path(os.path.expandvars(os.path.expanduser(str(pattern))))
+        raw = Path(_apply_path_maps(pattern, path_maps))
         if raw.is_absolute():
             matches = sorted(raw.parent.glob(raw.name))
         else:
@@ -370,7 +414,7 @@ def _validate_taiwei_2d_case(name, case):
             )
 
 
-def load_case_manifest(path):
+def load_case_manifest(path, path_maps=None):
     if path is None:
         return {}
     path = path.resolve()
@@ -391,8 +435,8 @@ def load_case_manifest(path):
         lefs = case.get("lef_input", case.get("lefs"))
         if not lefs:
             raise ValueError("Manifest case %s missing lef_input/lefs" % name)
-        lef_paths = [_resolve_manifest_path(p, base_dir) for p in _as_list(lefs)]
-        lef_paths.extend(_resolve_manifest_globs(case.get("lef_globs", []), base_dir))
+        lef_paths = [_resolve_manifest_path(p, base_dir, path_maps) for p in _as_list(lefs)]
+        lef_paths.extend(_resolve_manifest_globs(case.get("lef_globs", []), base_dir, path_maps))
         def_input = case.get("def_input", case.get("def"))
         if not def_input:
             raise ValueError("Manifest case %s missing def_input/def" % name)
@@ -402,7 +446,7 @@ def load_case_manifest(path):
             "design_name": case.get("design_name", name),
             "benchmark": case.get("benchmark", "dreamplace"),
             "lef_input": _dedup_paths(lef_paths),
-            "def_input": _resolve_manifest_path(def_input, base_dir),
+            "def_input": _resolve_manifest_path(def_input, base_dir, path_maps),
             "verilog_input": "",
             "eval_verilog_input": "",
             "dreamplace_verilog_input": case.get("dreamplace_verilog_input", True),
@@ -413,21 +457,25 @@ def load_case_manifest(path):
         }
         if case.get("verilog_input", case.get("verilog")):
             normalized["verilog_input"] = str(
-                _resolve_manifest_path(case.get("verilog_input", case.get("verilog")), base_dir)
+                _resolve_manifest_path(
+                    case.get("verilog_input", case.get("verilog")), base_dir, path_maps
+                )
             )
         eval_verilog = case.get("eval_verilog_input") or case.get("original_verilog_input")
         if eval_verilog:
-            normalized["eval_verilog_input"] = str(_resolve_manifest_path(eval_verilog, base_dir))
+            normalized["eval_verilog_input"] = str(
+                _resolve_manifest_path(eval_verilog, base_dir, path_maps)
+            )
         for key in ("tech", "stage", "reference_route_def"):
             if key in case:
                 normalized[key] = case[key]
         if "reference_route_def" in normalized:
             normalized["reference_route_def"] = str(
-                _resolve_manifest_path(normalized["reference_route_def"], base_dir)
+                _resolve_manifest_path(normalized["reference_route_def"], base_dir, path_maps)
             )
         for ref_name, ref_path in dict(case.get("reference_defs", {})).items():
             normalized["reference_defs"][ref_name] = str(
-                _resolve_manifest_path(ref_path, base_dir)
+                _resolve_manifest_path(ref_path, base_dir, path_maps)
             )
         _validate_taiwei_2d_case(name, normalized)
         missing = [str(p) for p in normalized["lef_input"] + [normalized["def_input"]] if not p.exists()]
@@ -609,7 +657,7 @@ def build_dreamplace_config(args, design, method, result_dir):
                 "routability_opt_flag": 1,
                 "ruplace_flag": 1,
                 "ruplace_xplace_root": str(Path(args.xplace_root).resolve()),
-                "ruplace_router_backend": "xplace",
+                "ruplace_router_backend": getattr(args, "ruplace_router_backend", "xplace"),
                 "ruplace_route_gpu": getattr(args, "gpu", 0),
                 "ruplace_gr_rrr_iters": args.route_rrr_iters,
                 "ruplace_external_route_eval": external_route_eval,
@@ -641,6 +689,9 @@ def build_dreamplace_config(args, design, method, result_dir):
                 "ruplace_admm_anchor_decay": getattr(args, "ruplace_admm_anchor_decay", 0.9),
             }
         )
+        gpugr_root = getattr(args, "ruplace_gpugr_root", None)
+        if gpugr_root:
+            cfg["ruplace_gpugr_root"] = str(Path(gpugr_root).resolve())
         cfg.update(
             parse_ruplace_param_overrides(getattr(args, "ruplace_param_overrides", "")).get(
                 design, {}
@@ -1975,7 +2026,7 @@ def eval_def_cli(argv):
 def main():
     args = parse_args()
     args.xplace_root = args.xplace_root.resolve()
-    args.case_map = load_case_manifest(args.case_manifest)
+    args.case_map = load_case_manifest(args.case_manifest, parse_path_maps(args.manifest_path_map))
     methods = parse_methods(args.methods)
     if args.case_map and not args.designs:
         designs = list(args.case_map.keys())
