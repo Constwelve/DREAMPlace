@@ -28,3 +28,15 @@ History uses short imperative or descriptive subjects, often with merge commits 
 ## Security & Configuration Tips
 
 Do not commit downloaded benchmark payloads, local `build/` or `install/` artifacts, CUDA/toolchain paths, or license/server settings. Keep machine-specific scripts separate from portable CMake and Python configuration.
+
+## Long-Running Experiment Token Policy
+
+For long benchmark, thermal, ATSim, routing, or placement runs:
+- Do not babysit runs with repeated sleep or polling loops inside Codex.
+- Prefer detached runners (`tmux`, `nohup`, or supervisor scripts) that write compact status files.
+- Create or maintain a `HANDOFF_STATUS.md` in each long-experiment directory with repo path, artifact root, completed/total counts, active row, key commands, and pending final reports.
+- For progress reports, read status CSV/JSON/Markdown artifacts and log tails only.
+- Avoid dumping full logs; use `tail`, `rg`, and structured parsers.
+- Keep progress reports concise: completed/total, active case, latest artifact, and blocker.
+- If a run is still active, report once and stop; do not wait unless explicitly asked.
+
