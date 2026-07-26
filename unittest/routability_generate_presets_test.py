@@ -22,6 +22,36 @@ BASE = {
 
 
 class RoutabilityGeneratePresetsTest(unittest.TestCase):
+    def test_generates_atomic_plugin_specific_grids(self):
+        presets, manifest = generate_presets(BASE, {
+            "plugins": ["local_gradient", "net_weighting"],
+            "combination_sizes": [1],
+            "proxies": ["rudy"],
+            "grid": {"ruplace_plugin_start_overflow": [0.6, 0.8]},
+            "plugin_grids": {
+                "local_gradient": {"ruplace_local_gradient_weight": [0.005, 0.01]},
+                "net_weighting": {"ruplace_net_weight_gamma": [0.025, 0.05]},
+            },
+        })
+
+        self.assertEqual(len(manifest), 8)
+        local = [
+            presets[name] for name, row in manifest.items()
+            if row["plugins"] == ["local_gradient"]
+        ]
+        weighting = [
+            presets[name] for name, row in manifest.items()
+            if row["plugins"] == ["net_weighting"]
+        ]
+        self.assertTrue(all("ruplace_net_weight_gamma" not in row for row in local))
+        self.assertTrue(all("ruplace_local_gradient_weight" not in row for row in weighting))
+        self.assertEqual(
+            {row["ruplace_local_gradient_weight"] for row in local}, {0.005, 0.01}
+        )
+        self.assertEqual(
+            {row["ruplace_net_weight_gamma"] for row in weighting}, {0.025, 0.05}
+        )
+
     def test_generates_pair_grid_and_skips_invalid_routeforce_proxy(self):
         presets, manifest = generate_presets(BASE, {
             "plugins": ["local_gradient", "net_weighting", "routeforce"],
@@ -57,6 +87,15 @@ class RoutabilityGeneratePresetsTest(unittest.TestCase):
                 "combination_sizes": [2],
                 "proxies": ["rudy"],
                 "shared_overrides": {"ruplace_proxy": "gpugr"},
+            })
+
+    def test_rejects_unknown_plugin_grid(self):
+        with self.assertRaisesRegex(ValueError, "unknown plugins"):
+            generate_presets(BASE, {
+                "plugins": ["local_gradient", "net_weighting"],
+                "combination_sizes": [1],
+                "proxies": ["rudy"],
+                "plugin_grids": {"poisson_force": {"ruplace_poisson_weight": [0.01]}},
             })
 
     def test_cli_writes_presets_and_provenance(self):

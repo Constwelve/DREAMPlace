@@ -44,8 +44,8 @@ def generate_presets(base_presets, spec, max_presets=256):
     sizes = [int(value) for value in as_list(
         spec.get("combination_sizes"), "combination_sizes"
     )]
-    if any(size < 2 or size > len(plugins) for size in sizes):
-        raise ValueError("combination sizes must be between 2 and plugin count")
+    if any(size < 1 or size > len(plugins) for size in sizes):
+        raise ValueError("combination sizes must be between 1 and plugin count")
     proxies = [str(value).lower() for value in as_list(spec.get("proxies"), "proxies")]
     if len(proxies) != len(set(proxies)):
         raise ValueError("proxies contains duplicates")
@@ -62,21 +62,43 @@ def generate_presets(base_presets, spec, max_presets=256):
     manifest = {}
     shared = dict(spec.get("shared_overrides", {}))
     grid = dict(spec.get("grid", {}))
+    plugin_grids = dict(spec.get("plugin_grids", {}))
+    unknown_grid_plugins = sorted(set(plugin_grids) - set(plugins))
+    if unknown_grid_plugins:
+        raise ValueError(
+            "plugin_grids contains unknown plugins: %s"
+            % ", ".join(unknown_grid_plugins)
+        )
+    for plugin, plugin_grid in plugin_grids.items():
+        if not isinstance(plugin_grid, dict):
+            raise ValueError("plugin_grids.%s must be an object" % plugin)
     reserved = {
         "ruplace_flag", "routability_opt_flag", "ruplace_proxy", "ruplace_plugins",
     }
-    overridden = sorted((set(shared) | set(grid)) & reserved)
+    plugin_grid_keys = {
+        key for plugin_grid in plugin_grids.values() for key in plugin_grid
+    }
+    overridden = sorted((set(shared) | set(grid) | plugin_grid_keys) & reserved)
     if overridden:
         raise ValueError(
             "combination identity keys cannot be overridden: %s"
             % ", ".join(overridden)
         )
-    points = grid_points(grid)
     prefix = str(spec.get("name_prefix", "combo"))
 
     index = 0
     for size in sorted(set(sizes)):
         for selected in combinations(plugins, size):
+            selected_grid = dict(grid)
+            for plugin in selected:
+                for key, values in plugin_grids.get(plugin, {}).items():
+                    if key in selected_grid and selected_grid[key] != values:
+                        raise ValueError(
+                            "conflicting grid values for %s in %s"
+                            % (key, ",".join(selected))
+                        )
+                    selected_grid[key] = values
+            points = grid_points(selected_grid)
             for proxy in proxies:
                 if "routeforce" in selected and proxy not in ("gpugr", "xplace"):
                     continue

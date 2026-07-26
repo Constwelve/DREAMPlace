@@ -190,14 +190,17 @@ compatibility; it must not be interpreted as the history of a run. For example,
 a final zero congestion-gradient norm can coexist with earlier nonzero plugin
 activations.
 
-Generate bounded pair/triple and hyperparameter sweeps from a JSON specification
+Generate bounded atomic, pair/triple, and hyperparameter sweeps from a JSON specification
 with `tools/routability_generate_presets.py`. The generator writes both the
 presets and a provenance manifest, requires an explicit congestion proxy, skips
 non-GPUGR `routeforce` combinations, and rejects identity-key overrides. Pass the
 result through either campaign layer with `--presets`; both
 `routability_campaign.py` and `routability_parallel.py` forward the exact file to
-the comparison runner. Survivor selection should precede generation so the
-search remains statistically and computationally tractable.
+the comparison runner. A `plugin_grids` mapping scopes strength controls to the
+plugins that consume them, avoiding duplicate configurations from irrelevant
+Cartesian dimensions. Survivor selection should precede pair/triple generation;
+a bounded atomic strength sweep is the fallback when no default-strength method
+passes the predeclared wirelength guardrails.
 
 After freezing survivors, use `tools/routability_golden_replay.py` to copy their
 placed DEFs and mapped configs into a separate artifact tree and evaluate only
