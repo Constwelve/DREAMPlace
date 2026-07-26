@@ -127,8 +127,8 @@ gradient/net methods, the worst observed seed regressed placement HPWL by 61%
 to 129% and GPUGR wirelength by 62% to 94%. Test1/test3 changes were generally
 within a few percent. Therefore no default-strength plugin is eligible for pair
 search.
-A bounded 30-point weak-strength atomic sweep uses test1/test2 as development
-cases and reserves test3 for held-out confirmation before any pair is formed.
+A bounded 30-point weak-strength atomic sweep used test1/test2 as development
+cases and reserved test3 for held-out confirmation before any pair was formed.
 
 The saved full-comparison CSV predates placement-row reporting, the p99
 headline score, and the hardened evaluator failure semantics. It must not be
@@ -136,6 +136,29 @@ used as evidence for those newer reporting contracts. A fresh
 50-iteration runner smoke at
 `results/routability_lab/ispd19_test1_runner_reporting_smoke` proves the new
 row: HPWL `88,079.48`, overflow `0.9502155`, and placement runtime `5.25 s`.
+
+### Frozen weak-strength and combination search
+
+The bounded weak-strength development sweep completed all six test1/test2
+case-seeds for 30 atomic presets. The predeclared 5% mean/10% worst placement
+HPWL and GPUGR-wirelength guardrails selected one preset each for
+`net_weighting`, `poisson_force`, and `net_overlap`. All three remained
+eligible on the separately held-out test3 seeds; this held-out result was not
+used to retune their parameters.
+
+The resulting bounded pair search evaluated nine combinations across the six
+development case-seeds: the three plugin pairs at activation thresholds 0.6,
+0.8, and 1.0. None passed the same hard guardrails, so no combination advanced
+to golden validation. In particular, an improved GPUGR congestion score was
+not accepted when placement HPWL or GPUGR routed wirelength regressed.
+
+A frozen unified replay then reran HPWL and the three atomic finalists on all
+nine contest case-seeds. Only the Poisson preset remained eligible after the
+full three-design guardrail pass. Its common OpenROAD golden replay completed
+all nine comparisons with 18 positive routes. Poisson's routed-wirelength
+delta was -1.115% mean, +0.603% median, and +3.994% worst, with only 2/9 pair
+wins and a design-level 95% confidence interval of -8.202% to +5.972%. The
+negative mean is driven by one test2 seed and is not a robust improvement.
 
 ### Router calibration
 
@@ -192,23 +215,38 @@ and must not be used to reconstruct these inputs.
   passed its former initialization crash before reaching the 120-second route
   timeout. Separate child-process RUDY and pin-RUDY checks on a valid placed
   ISPD2019 test1 DEF both completed successfully.
+- The converged five-design, three-seed screen completed all 15 comparisons
+  with 30 valid placements. Poisson reduced density overflow by 36.746% and
+  the RUDY hotspot score by 19.571% on average, but increased placement HPWL by
+  19.763% with losses on every case-seed. RUDY overflow sum increased 7.872%
+  on average and its maximum-utilization change was inconclusive. These are
+  fallback screening results, not golden evidence.
+- A manufacturing-grid-safe BP_quad seed-1000 Innovus pilot produced two
+  positive EGR routes. Relative to HPWL, Poisson increased routed wirelength
+  15.143%, vias 0.296%, horizontal congestion 20%, and vertical congestion
+  12%. The original DEFs remain preserved and each snapped DEF records input
+  and output hashes, changed coordinates, and maximum displacement.
+- The full common-Innovus replay completed all 15 five-design, three-seed
+  comparisons with 30 positive routes and 30 successful manufacturing-grid
+  snap reports. The summary has zero exclusions, incomplete jobs, missing
+  comparisons, or baseline gaps. Poisson lost routed wirelength on all 15
+  pairs: +18.663% mean, +13.547% median, +52.558% worst, with a design-level
+  95% confidence interval of -1.370% to +38.696%. Vias increased 1.090% on
+  average (6 wins, 9 losses); H/V congestion was mixed with wide confidence
+  intervals. This rejects Poisson and leaves HPWL as the robust default.
 
-## Work still required for defensible comparisons
+## Validation conclusion and remaining research gaps
 
-1. Tune activation schedules on a development set, then freeze them before a
-   held-out comparison. Thresholds `1.0` and `0.8` activate but hurt OpenROAD;
-   the normal `0.2` area schedule does not fire in the reduced run.
-2. Run the full contest suite with multiple seeds and full convergence. Attempt
-   both OpenROAD and Innovus as golden validators; use RUDY and bundled GPUGR
-   only where neither golden validator can cover every compared method.
-3. Select robust single-method survivors, generate bounded combinations, and
-   compare them without tuning on the held-out cases.
-4. Report legality, HPWL, routed WL, vias, overflow/shorts, runtime, failures,
-   and confidence intervals. Do not rank by a single normalized congestion
-   score.
-5. Reproduce RoutePlacer, PUFFER, SimPLR, detailed-routing, virtual-cell, and
-   timing-aware methods only after their missing licenses/models/features are
-   resolved. Until then the corresponding plugins remain approximations.
+The implemented plugin and bounded-combination campaign is complete. No method
+or pair passed the full frozen protocol, so no routability plugin should be
+enabled by default. The final cross-stage decision report is
+`docs/routability_validation_final.md`.
+
+Future work may reproduce RoutePlacer, PUFFER, SimPLR, detailed-routing,
+virtual-cell, and timing-aware methods only after their missing
+licenses/models/features are resolved. Until then the corresponding plugins
+remain approximations and are not evidence gaps in the completed
+mechanism-comparison campaign.
 
 ## Evidence roots
 
@@ -232,3 +270,11 @@ and must not be used to reconstruct these inputs.
 - `results/routability_lab/bp_quad_materialized_probe`
 - `results/routability_lab/remaining_materialized_real_probes`
 - `results/routability_lab/remote_screening_ispd2019_e040310`
+- `results/routability_remote/ispd2019_weak_atomic_dev_test1_test2_3seeds_de60953`
+- `results/routability_remote/ispd2019_weak_atomic_heldout_test3_3seeds_6cad06c`
+- `results/routability_remote/ispd2019_pair_dev_test1_test2_3seeds_d8fab3c`
+- `results/routability_remote/ispd2019_unified_finalists_3cases_3seeds_d8fab3c`
+- `results/routability_remote/real_5designs_3seeds_85603d6`
+- `results/routability_remote/real_bp_quad_pilot_seed1000_85603d6`
+- `results/routability_remote/real_5designs_3seeds_85603d6/golden_innovus_snapped_4589107`
+- `results/routability_remote/real_5designs_3seeds_85603d6/golden_innovus_snapped_4589107_summary`
