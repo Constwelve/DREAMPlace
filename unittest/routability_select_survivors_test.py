@@ -70,6 +70,55 @@ class RoutabilitySelectSurvivorsTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "not a complete"):
             select_survivors(data, STATES)
 
+    def test_tuned_variants_keep_one_preset_per_plugin(self):
+        data = summary()
+        source_rows = [row for row in data["rows"] if row["method"] == "good_a"]
+        for row in source_rows:
+            alternative = dict(row)
+            alternative["method"] = "good_a_alt"
+            if alternative["backend"] == "gpugr" and alternative["metric"] == "gr_wirelength":
+                alternative["mean_delta_pct"] = -2.0
+                alternative["median_delta_pct"] = -2.0
+                alternative["worst_delta_pct"] = -2.0
+            elif alternative["backend"] == "placement":
+                alternative["mean_delta_pct"] = -0.25
+                alternative["median_delta_pct"] = -0.25
+                alternative["worst_delta_pct"] = -0.25
+            data["rows"].append(alternative)
+        states = dict(STATES)
+        states["good_a_alt"] = {
+            "statuses": ["active"] * 3,
+            "plugins": {"local_gradient"},
+            "rows": 3,
+        }
+        provenance = {
+            "good_a": {
+                "grid": {
+                    "ruplace_local_gradient_weight": 0.005,
+                    "ruplace_plugin_start_overflow": 0.6,
+                }
+            },
+            "good_a_alt": {
+                "grid": {
+                    "ruplace_local_gradient_weight": 0.01,
+                    "ruplace_plugin_start_overflow": 0.8,
+                }
+            },
+        }
+
+        result = select_survivors(
+            data, states, preset_provenance=provenance
+        )
+
+        local_methods = [
+            row for row in result["selected_methods"] if row.startswith("good_a")
+        ]
+        self.assertEqual(local_methods, ["good_a_alt"])
+        self.assertEqual(
+            result["combination_plugin_grids"],
+            {"local_gradient": {"ruplace_local_gradient_weight": [0.01]}},
+        )
+
     def test_cli_writes_pair_spec(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -77,6 +126,7 @@ class RoutabilitySelectSurvivorsTest(unittest.TestCase):
             raw = root / "screening_raw.csv"
             output = root / "survivors.json"
             spec = root / "pair_spec.json"
+            preset_manifest = root / "presets.json.manifest.json"
             summary_path.write_text(json.dumps(summary()))
             with raw.open("w", newline="") as stream:
                 writer = csv.DictWriter(stream, fieldnames=[
@@ -90,9 +140,16 @@ class RoutabilitySelectSurvivorsTest(unittest.TestCase):
                             "plugin_status": "active",
                             "plugin_selected": ",".join(state["plugins"]),
                         })
+            preset_manifest.write_text(json.dumps({
+                "generated": {
+                    "good_a": {"grid": {"ruplace_local_gradient_weight": 0.01}},
+                    "good_b": {"grid": {"ruplace_net_weight_gamma": 0.05}},
+                }
+            }))
             status = main([
                 "--summary", str(summary_path), "--raw", str(raw),
                 "--output", str(output), "--combination-spec", str(spec),
+                "--preset-manifest", str(preset_manifest),
             ])
             generated = json.loads(spec.read_text())
 
@@ -100,6 +157,10 @@ class RoutabilitySelectSurvivorsTest(unittest.TestCase):
         self.assertEqual(generated["combination_sizes"], [2])
         self.assertEqual(
             set(generated["plugins"]), {"local_gradient", "net_weighting"}
+        )
+        self.assertEqual(
+            generated["plugin_grids"]["local_gradient"],
+            {"ruplace_local_gradient_weight": [0.01]},
         )
 
 

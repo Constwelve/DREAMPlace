@@ -57,7 +57,8 @@ def dominates(left, right, objectives):
 
 def select_survivors(data, plugin_states, baseline="hpwl", max_survivors=5,
                      max_hpwl_mean=5.0, max_hpwl_worst=10.0,
-                     max_gpugr_wl_mean=5.0, max_gpugr_wl_worst=10.0):
+                     max_gpugr_wl_mean=5.0, max_gpugr_wl_worst=10.0,
+                     preset_provenance=None):
     if not complete_summary(data):
         raise ValueError("screening summary is not a complete validated campaign")
     expected = int(data["expected_comparisons"])
@@ -128,6 +129,8 @@ def select_survivors(data, plugin_states, baseline="hpwl", max_survivors=5,
                 for key, row in metrics.items()
             },
         }
+        if preset_provenance and method in preset_provenance:
+            record["preset_provenance"] = preset_provenance[method]
         if reasons:
             record["reasons"] = reasons
             excluded.append(record)
@@ -156,7 +159,33 @@ def select_survivors(data, plugin_states, baseline="hpwl", max_survivors=5,
         row["objectives"]["placement:placement_hpwl"],
         row["method"],
     ))
-    selected = frontier[:max_survivors]
+    selected = []
+    selected_atomic_plugins = set()
+    for candidate in frontier:
+        if candidate["is_atomic_plugin"]:
+            plugin = candidate["plugins"][0]
+            if plugin in selected_atomic_plugins:
+                continue
+            selected_atomic_plugins.add(plugin)
+        selected.append(candidate)
+        if len(selected) >= max_survivors:
+            break
+    combination_plugin_grids = {}
+    shared_schedule_keys = {
+        "ruplace_plugin_start_overflow", "ruplace_inflate_start_overflow",
+    }
+    for candidate in selected:
+        if not candidate["is_atomic_plugin"]:
+            continue
+        plugin = candidate["plugins"][0]
+        provenance = candidate.get("preset_provenance", {})
+        fixed = {
+            key: [value]
+            for key, value in provenance.get("grid", {}).items()
+            if key not in shared_schedule_keys
+        }
+        if fixed:
+            combination_plugin_grids[plugin] = fixed
     return {
         "baseline": baseline,
         "expected_comparisons": expected,
@@ -176,6 +205,7 @@ def select_survivors(data, plugin_states, baseline="hpwl", max_survivors=5,
         "combination_plugins": [
             row["plugins"][0] for row in selected if row["is_atomic_plugin"]
         ],
+        "combination_plugin_grids": combination_plugin_grids,
         "excluded": excluded,
     }
 
@@ -186,6 +216,7 @@ def main(argv=None):
     parser.add_argument("--raw", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--combination-spec", type=Path)
+    parser.add_argument("--preset-manifest", type=Path)
     parser.add_argument("--baseline", default="hpwl")
     parser.add_argument("--max-survivors", type=int, default=5)
     parser.add_argument("--max-hpwl-mean-pct", type=float, default=5.0)
@@ -196,6 +227,11 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     raw = args.raw or args.summary.parent / "screening_raw.csv"
+    preset_provenance = None
+    if args.preset_manifest:
+        preset_provenance = json.loads(args.preset_manifest.read_text()).get(
+            "generated", {}
+        )
     result = select_survivors(
         json.loads(args.summary.read_text()), load_plugin_states(raw),
         baseline=args.baseline, max_survivors=args.max_survivors,
@@ -203,6 +239,7 @@ def main(argv=None):
         max_hpwl_worst=args.max_hpwl_worst_pct,
         max_gpugr_wl_mean=args.max_gpugr_wl_mean_pct,
         max_gpugr_wl_worst=args.max_gpugr_wl_worst_pct,
+        preset_provenance=preset_provenance,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
@@ -211,14 +248,19 @@ def main(argv=None):
         if len(plugins) < 2:
             raise ValueError("fewer than two atomic plugin survivors")
         args.combination_spec.parent.mkdir(parents=True, exist_ok=True)
-        args.combination_spec.write_text(json.dumps({
+        combination = {
             "name_prefix": "survivor_pair",
             "copy_presets": [args.baseline],
             "plugins": plugins,
             "combination_sizes": [2],
             "proxies": [args.combination_proxy],
             "grid": {"ruplace_plugin_start_overflow": [0.6, 0.8, 1.0]},
-        }, indent=2, sort_keys=True) + "\n")
+        }
+        if result["combination_plugin_grids"]:
+            combination["plugin_grids"] = result["combination_plugin_grids"]
+        args.combination_spec.write_text(
+            json.dumps(combination, indent=2, sort_keys=True) + "\n"
+        )
     return 0
 
 
