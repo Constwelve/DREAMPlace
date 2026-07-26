@@ -207,6 +207,15 @@ missing DEFs. Its output uses the same comparison and parallel-status schemas,
 so `tools/routability_summarize.py` applies the identical completion, baseline,
 coverage, and case-level confidence gates to golden results.
 
+`tools/routability_select_survivors.py` freezes the methods eligible for the
+first pair sweep. It requires a complete validated screening campaign and full
+plugin activation, rejects candidates outside explicit placement-HPWL and
+GPUGR-wirelength guardrails, and computes a multiobjective Pareto frontier over
+the separately retained placement, RUDY, and GPUGR metrics. It does not add
+cross-backend values into a synthetic score. The emitted JSON records every
+qualified/excluded method and reason; its optional combination specification
+contains only atomic plugin survivors and an explicit proxy/activation grid.
+
 Required controls for a defensible table:
 
 1. Same input revision, LEFs, DEF topology, netlist, target density, bins, seed, optimizer, and placement iteration budget.
