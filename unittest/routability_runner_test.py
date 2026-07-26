@@ -10,7 +10,11 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from tools.routability_campaign import resolve_template_paths
+from tools.routability_campaign import (
+    apply_path_maps,
+    parse_path_maps,
+    resolve_template_paths,
+)
 from dreamplace.ops.routability_eval import EvaluationResult
 from tools.routability_compare import (
     DEFAULT_EVALUATORS,
@@ -128,6 +132,17 @@ class RoutabilityRunnerTest(unittest.TestCase):
         )
         self.assertEqual(result["ruplace_xplace_root"], "/Xplace")
         self.assertEqual(result["routability_eval_openroad_binary"], "openroad")
+
+    def test_campaign_path_maps_replace_only_path_prefix(self):
+        mappings = parse_path_maps(["/source/data=/remote/data"])
+        self.assertEqual(
+            apply_path_maps("/source/data/case/input.def", mappings),
+            "/remote/data/case/input.def",
+        )
+        self.assertEqual(
+            apply_path_maps("/source/database/input.def", mappings),
+            "/source/database/input.def",
+        )
 
     def test_parse_placement_metrics_uses_final_iteration(self):
         metrics = parse_placement_metrics(

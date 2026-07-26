@@ -1,0 +1,43 @@
+{
+  "gpu": 1,
+  "num_threads": 8,
+  "num_bins_x": 512,
+  "num_bins_y": 512,
+  "route_num_bins_x": 256,
+  "route_num_bins_y": 256,
+  "global_place_flag": 1,
+  "legalize_flag": 1,
+  "detailed_place_flag": 1,
+  "plot_flag": 0,
+  "random_center_init_flag": 1,
+  "target_density": 1.0,
+  "stop_overflow": 0.1,
+  "density_weight": 0.00008,
+  "gamma": 4.0,
+  "gp_noise_ratio": 0.025,
+  "deterministic_flag": 1,
+  "ruplace_router_backend": "gpugr",
+  "ruplace_gr_rrr_iters": 1,
+  "ruplace_route_gpu": 0,
+  "ruplace_external_route_eval": 1,
+  "ruplace_proxy_refresh_interval": 10,
+  "ruplace_plugin_start_overflow": 0.8,
+  "ruplace_inflate_start_overflow": 0.8,
+  "ruplace_inflate_area_cap": 0.01,
+  "ruplace_local_inflate_max_rounds": 0,
+  "ruplace_momentum_rounds": 1,
+  "ruplace_path_inflate_rounds": 1,
+  "ruplace_pin_porosity_rounds": 1,
+  "node_area_adjust_overflow": 0.8,
+  "max_num_area_adjust": 1,
+  "global_place_stages": [
+    {
+      "num_bins_x": 512,
+      "num_bins_y": 512,
+      "iteration": 1000,
+      "learning_rate": 0.01,
+      "wirelength": "weighted_average",
+      "optimizer": "nesterov"
+    }
+  ]
+}

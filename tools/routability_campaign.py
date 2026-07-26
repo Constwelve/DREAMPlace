@@ -19,10 +19,31 @@ def as_list(value):
     return value if isinstance(value, list) else [value]
 
 
-def resolve_path(value, manifest_dir):
+def parse_path_maps(values):
+    mappings = []
+    for value in values or []:
+        if "=" not in value:
+            raise ValueError("--path-map requires OLD=NEW, got %s" % value)
+        old, new = value.split("=", 1)
+        mappings.append((str(Path(old).expanduser()), str(Path(new).expanduser())))
+    return mappings
+
+
+def apply_path_maps(value, path_maps):
+    value = str(Path(value).expanduser())
+    for old, new in path_maps:
+        prefix = old.rstrip("/") + "/"
+        if value == old:
+            return new
+        if value.startswith(prefix):
+            return new.rstrip("/") + "/" + value[len(prefix):]
+    return value
+
+
+def resolve_path(value, manifest_dir, path_maps=()):
     if not value:
         return ""
-    path = Path(value).expanduser()
+    path = Path(apply_path_maps(value, path_maps))
     return str((manifest_dir / path).resolve()) if not path.is_absolute() else str(path.resolve())
 
 
@@ -39,7 +60,7 @@ def resolve_template_paths(template, template_dir):
     return result
 
 
-def load_cases(manifests, selected):
+def load_cases(manifests, selected, path_maps=()):
     cases = []
     for manifest in manifests:
         data = json.loads(manifest.read_text())
@@ -48,16 +69,19 @@ def load_cases(manifests, selected):
                 continue
             case = dict(raw)
             case["manifest"] = str(manifest)
-            case["lef_input"] = [resolve_path(path, manifest.parent) for path in as_list(raw.get("lef_input"))]
+            case["lef_input"] = [
+                resolve_path(path, manifest.parent, path_maps)
+                for path in as_list(raw.get("lef_input"))
+            ]
             for key in ("def_input", "verilog_input", "eval_verilog_input", "aux_input"):
-                case[key] = resolve_path(raw.get(key, ""), manifest.parent)
+                case[key] = resolve_path(raw.get(key, ""), manifest.parent, path_maps)
             cases.append(case)
     return cases
 
 
 def write_status(path, rows):
     fields = [
-        "case", "class", "benchmark", "placement_status", "reason",
+        "case", "class", "benchmark", "random_seed", "placement_status", "reason",
         "manifest", "result_dir",
     ]
     with path.open("w", newline="") as stream:
@@ -81,10 +105,13 @@ def main(argv=None):
     parser.add_argument("--timeout-sec", type=int, default=0)
     parser.add_argument("--include-disabled", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--random-seed", type=int)
+    parser.add_argument("--path-map", action="append", default=[])
     args = parser.parse_args(argv)
 
     selected = {name.strip() for name in args.cases.split(",") if name.strip()}
-    cases = load_cases([path.resolve() for path in args.manifest], selected)
+    path_maps = parse_path_maps(args.path_map)
+    cases = load_cases([path.resolve() for path in args.manifest], selected, path_maps)
     template_path = args.template.resolve()
     template = resolve_template_paths(json.loads(template_path.read_text()), template_path.parent)
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -99,7 +126,8 @@ def main(argv=None):
         if not enabled and not args.include_disabled:
             statuses.append({
                 "case": case["name"], "class": case_class,
-                "benchmark": case.get("benchmark", ""), "placement_status": "disabled",
+                "benchmark": case.get("benchmark", ""), "random_seed": args.random_seed,
+                "placement_status": "disabled",
                 "reason": case.get("notes", "disabled by manifest"),
                 "manifest": case["manifest"], "result_dir": str(case_dir),
             })
@@ -107,7 +135,7 @@ def main(argv=None):
         if not placement_enabled:
             statuses.append({
                 "case": case["name"], "class": case_class,
-                "benchmark": case.get("benchmark", ""),
+                "benchmark": case.get("benchmark", ""), "random_seed": args.random_seed,
                 "placement_status": "input_reference_only",
                 "reason": case.get("notes", "placement disabled by manifest"),
                 "manifest": case["manifest"], "result_dir": str(case_dir),
@@ -117,7 +145,8 @@ def main(argv=None):
         if missing:
             statuses.append({
                 "case": case["name"], "class": case_class,
-                "benchmark": case.get("benchmark", ""), "placement_status": "missing_input",
+                "benchmark": case.get("benchmark", ""), "random_seed": args.random_seed,
+                "placement_status": "missing_input",
                 "reason": "; ".join(missing), "manifest": case["manifest"],
                 "result_dir": str(case_dir),
             })
@@ -130,6 +159,8 @@ def main(argv=None):
             "ruplace_eval_verilog_input": case.get("eval_verilog_input", ""),
             "aux_input": case.get("aux_input", ""),
         })
+        if args.random_seed is not None:
+            config["random_seed"] = args.random_seed
         case_dir.mkdir(parents=True, exist_ok=True)
         base_config = case_dir / "base_config.json"
         base_config.write_text(json.dumps(config, indent=2, sort_keys=True) + "\n")
@@ -152,7 +183,8 @@ def main(argv=None):
                 reason = "comparison runner exit status %d" % completed.returncode
         statuses.append({
             "case": case["name"], "class": case_class,
-            "benchmark": case.get("benchmark", ""), "placement_status": status,
+            "benchmark": case.get("benchmark", ""), "random_seed": args.random_seed,
+            "placement_status": status,
             "reason": reason, "manifest": case["manifest"], "result_dir": str(case_dir),
         })
         write_status(args.output_dir / "campaign_status.csv", statuses)
