@@ -112,6 +112,24 @@ The apparent `net_weighting` improvement did not generalize to legal Nangate45
 methods and Innovus reported 0%/0% H/V overflow. Therefore no implemented
 plugin is currently supported as a winner.
 
+### Multi-seed default-strength screening
+
+The full ISPD2019 test1/test2/test3 screen completed 9 of 9 case-seed
+comparisons at seeds 1000, 2000, and 3000. All comparisons were validated on
+the common RUDY and bundled-GPUGR fallback tier, every selected plugin activated
+in every run, and the summary reported no exclusions, incomplete jobs, missing
+comparisons, or HPWL-baseline gaps. The strict selector qualified zero methods
+under the predeclared 5% mean/10% worst placement-HPWL and GPUGR-wirelength
+guardrails.
+
+The failure is concentrated on ISPD2019 test2: among the five least damaging
+gradient/net methods, the worst observed seed regressed placement HPWL by 61%
+to 129% and GPUGR wirelength by 62% to 94%. Test1/test3 changes were generally
+within a few percent. Therefore no default-strength plugin is eligible for pair
+search.
+A bounded 30-point weak-strength atomic sweep uses test1/test2 as development
+cases and reserves test3 for held-out confirmation before any pair is formed.
+
 The saved full-comparison CSV predates placement-row reporting, the p99
 headline score, and the hardened evaluator failure semantics. It must not be
 used as evidence for those newer reporting contracts. A fresh
@@ -213,3 +231,4 @@ and must not be used to reconstruct these inputs.
 - `results/routability_lab/openc910_materialized_probe`
 - `results/routability_lab/bp_quad_materialized_probe`
 - `results/routability_lab/remaining_materialized_real_probes`
+- `results/routability_lab/remote_screening_ispd2019_e040310`
