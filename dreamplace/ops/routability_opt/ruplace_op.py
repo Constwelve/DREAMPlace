@@ -225,8 +225,15 @@ class RUPlaceInflation(object):
             else:
                 overflow = route.overflow_map
                 raw_ratio = 1.0 + local_gamma * self._node_bin_utilization(pos, overflow, hv_overflow)
+        return self.apply_node_ratios(pos, raw_ratio)
+
+    def apply_node_ratios(self, pos, raw_ratio):
+        """Apply externally computed cumulative area ratios with RUPlace budgets."""
         raw_ratio = torch.nan_to_num(raw_ratio, nan=1.0, posinf=1.0, neginf=1.0)
-        raw_ratio.clamp_(min=1.0, max=float(self.params.ruplace_max_inflate_ratio))
+        raw_ratio.clamp_(
+            min=float(getattr(self.params, "ruplace_min_inflate_ratio", 1.0)),
+            max=float(self.params.ruplace_max_inflate_ratio),
+        )
 
         dc = self.data_collections
         num_movable = self.placedb.num_movable_nodes
@@ -271,7 +278,7 @@ class RUPlaceInflation(object):
         self._scale_movable_nodes(pos, target_cumulative_ratio)
         logging.info(
             "RUPlace %s inflation: area increment %.4E (%.4f), ratio avg/max %.4f/%.4f",
-            "global" if global_pass else "local",
+            "plugin",
             (final_area - old_area).sum().item(),
             ((final_area - old_area).sum() / old_area.sum()).item(),
             target_cumulative_ratio.mean().item(),

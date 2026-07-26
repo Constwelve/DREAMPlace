@@ -262,7 +262,7 @@ class PlaceObj(nn.Module):
                 params, placedb, self.data_collections)
             if getattr(params, "ruplace_flag", 0):
                 self.op_collections.routability_opt_op = build_routability_opt_op(
-                    params, placedb, self.data_collections)
+                    params, placedb, self.data_collections, self.op_collections)
                 self.op_collections.ruplace_controller = self.op_collections.routability_opt_op
 
         # GiFt initialization 

@@ -1,0 +1,52 @@
+{
+  "description": "Innovus 2D place_design outputs from TaiWei-Pin-3D; no 3D, CTS, or routed DEFs.",
+  "cases": [
+    {
+      "name": "bp_quad",
+      "def_input": "/mnt/nvme0n1/yifan/projs/TaiWei-Pin-3D/results/nangate45_3D/bp_quad/cadence/2_2_floorplan_io.def",
+      "lef_input": [
+        "/mnt/nvme0n1/yifan/projs/TaiWei-Pin-3D/platforms/nangate45/lef/NangateOpenCellLibrary.macro.mod.lef",
+        "/mnt/nvme0n1/yifan/projs/TaiWei-Pin-3D/platforms/nangate45/lef/fakeram/*.lef"
+      ]
+    },
+    {
+      "name": "b19",
+      "def_input": "/mnt/nvme0n1/yifan/projs/TaiWei-Pin-3D/results/nangate45_3D/b19/cadence/2_2_floorplan_io.def",
+      "lef_input": [
+        "/mnt/nvme0n1/yifan/projs/TaiWei-Pin-3D/platforms/nangate45/lef/NangateOpenCellLibrary.macro.mod.lef"
+      ]
+    },
+    {
+      "name": "openc910",
+      "def_input": "/mnt/nvme0n1/yifan/projs/TaiWei-Pin-3D/results/nangate45_3D/openc910/cadence/2_2_floorplan_io.def",
+      "lef_input": [
+        "/mnt/nvme0n1/yifan/projs/TaiWei-Pin-3D/platforms/nangate45/lef/NangateOpenCellLibrary.macro.mod.lef",
+        "/mnt/nvme0n1/yifan/projs/TaiWei-Pin-3D/platforms/nangate45/lef/fakeram/*.lef"
+      ]
+    },
+    {
+      "name": "mempool_group",
+      "def_input": "/mnt/nvme0n1/yifan/projs/TaiWei-Pin-3D/results/nangate45_3D/mempool_group/cadence/2_2_floorplan_io.def",
+      "lef_input": [
+        "/mnt/nvme0n1/yifan/projs/TaiWei-Pin-3D/platforms/nangate45/lef/NangateOpenCellLibrary.macro.mod.lef",
+        "/mnt/nvme0n1/yifan/projs/TaiWei-Pin-3D/platforms/nangate45/lef/fakeram/*.lef"
+      ]
+    },
+    {
+      "name": "nvdla_l",
+      "def_input": "/mnt/nvme0n1/yifan/projs/TaiWei-Pin-3D/results/nangate45_3D/nvdla_l/cadence/2_2_floorplan_io.def",
+      "lef_input": [
+        "/mnt/nvme0n1/yifan/projs/TaiWei-Pin-3D/platforms/nangate45/lef/NangateOpenCellLibrary.macro.mod.lef",
+        "/mnt/nvme0n1/yifan/projs/TaiWei-Pin-3D/platforms/nangate45/lef/fakeram/*.lef"
+      ]
+    },
+    {
+      "name": "xscore",
+      "def_input": "/mnt/nvme0n1/yifan/projs/TaiWei-Pin-3D/results/nangate45_3D/xscore/cadence/2_2_floorplan_io.def",
+      "lef_input": [
+        "/mnt/nvme0n1/yifan/projs/TaiWei-Pin-3D/platforms/nangate45/lef/NangateOpenCellLibrary.macro.mod.lef",
+        "/mnt/nvme0n1/yifan/projs/TaiWei-Pin-3D/platforms/nangate45/lef/fakeram/*.lef"
+      ]
+    }
+  ]
+}

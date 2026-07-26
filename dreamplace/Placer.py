@@ -34,8 +34,11 @@ def place(params, learning_rate_value):
         if not params.def_input or not params.lef_input:
             raise RuntimeError("RUPlace currently requires LEF/DEF input")
         params.routability_opt_flag = 1
-        if not params.gpu:
-            raise RuntimeError("RUPlace requires GPU mode for Xplace GGR")
+        plugins = getattr(params, "ruplace_plugins", [])
+        proxy = str(getattr(params, "ruplace_proxy", "gpugr")).lower()
+        uses_gpu_router = not plugins or proxy in ("gpugr", "xplace")
+        if uses_gpu_router and not params.gpu:
+            raise RuntimeError("GPUGR/Xplace-driven RUPlace requires GPU mode")
 
     assert (not params.gpu) or configure.compile_configurations["CUDA_FOUND"] == 'TRUE', \
             "CANNOT enable GPU without CUDA compiled"

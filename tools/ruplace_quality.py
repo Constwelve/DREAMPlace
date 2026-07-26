@@ -1356,6 +1356,9 @@ def gate_summary(rows):
         x_ratio_max[key] = max(ratios) if ratios else None
 
     gate = {
+        "validation_role": "fallback_reference",
+        "golden_validated": False,
+        "verdict_scope": "reference_screening_only",
         "medians": medians,
         "dreamplace_baseline_pass": dreamplace_baseline_pass,
         "dp_rudy_improved": improved,
@@ -1467,7 +1470,8 @@ def write_report(path, args, run_dir, rows, gate):
         "- Designs: `%s`" % ", ".join(sorted({row["design"] for row in rows})),
         "- Methods: `%s`" % ", ".join(sorted({row["method"] for row in rows})),
         "- Iterations: `%d`" % args.iterations,
-        "- Verdict: `%s`" % ("PASS" if gate["pass"] else "FAIL"),
+        "- GPUGR reference screening: `%s`" % ("PASS" if gate["pass"] else "FAIL"),
+        "- Golden validation: `NOT RUN` (requires OpenROAD or Innovus)",
         "",
         "## Quality Gates",
         "",
@@ -1598,9 +1602,9 @@ def write_report(path, args, run_dir, rows, gate):
             "",
             "## Per-Design Wirelength Comparison",
             "",
-            "Ratios and deltas use RUPlace divided by or minus the named baseline. The `Best GR WL` column identifies the lowest routed wirelength among successful methods.",
+            "Ratios and deltas use RUPlace divided by or minus the named baseline. The `Lowest GPUGR-reference WL` column is diagnostic only and does not declare a method winner.",
             "",
-            "| Design | RU GR WL | vs Xplace | Delta | vs DREAMPlace RUDY | Delta | RU Place HPWL | vs Xplace HPWL | Best GR WL |",
+            "| Design | RU GR WL | vs Xplace | Delta | vs DREAMPlace RUDY | Delta | RU Place HPWL | vs Xplace HPWL | Lowest GPUGR-reference WL |",
             "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
         ]
     )

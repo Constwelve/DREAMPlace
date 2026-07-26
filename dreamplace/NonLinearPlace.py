@@ -16,6 +16,7 @@ import gzip
 import copy
 import matplotlib.pyplot as plt
 import inspect
+import json
 
 if sys.version_info[0] < 3:
     import cPickle as pickle
@@ -709,10 +710,9 @@ class NonLinearPlace(BasicPlace.BasicPlace):
                                 Llambda_flat_iteration,
                             )
                         # logging.debug("update density weight %.3f ms" % ((time.time()-t2)*1000))
-                        if Llambda_stop_criterion(Lgamma_step, Llambda_density_weight_step, Llambda_metrics):
-                            break
-
-                        # RUPlace cell inflation driven by the GPUGR backend.
+                        # Area plugins must run before the lambda stop check;
+                        # otherwise a converged stage exits without applying
+                        # its first routability adjustment.
                         if (
                             getattr(params, "ruplace_flag", 0)
                             and model.op_collections.routability_opt_op is not None
@@ -736,6 +736,9 @@ class NonLinearPlace(BasicPlace.BasicPlace):
                                 best_metric[0] = None
                                 best_pos[0] = None
                                 break
+
+                        if Llambda_stop_criterion(Lgamma_step, Llambda_density_weight_step, Llambda_metrics):
+                            break
 
                         # for routability optimization
                         if (
@@ -863,6 +866,18 @@ class NonLinearPlace(BasicPlace.BasicPlace):
 
 
                 logging.info("optimizer %s takes %.3f seconds" % (optimizer_name, time.time() - tt))
+                if (
+                    getattr(params, "ruplace_flag", 0)
+                    and model.op_collections.routability_opt_op is not None
+                    and hasattr(model.op_collections.routability_opt_op, "metrics")
+                ):
+                    logging.info(
+                        "ROUTABILITY_PLUGIN_SUMMARY %s",
+                        json.dumps(
+                            model.op_collections.routability_opt_op.metrics(),
+                            sort_keys=True,
+                        ),
+                    )
 
             # recover node size and pin offset for legalization, since node size is adjusted in global placement
             if params.routability_opt_flag:

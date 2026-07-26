@@ -1,0 +1,86 @@
+{
+  "hpwl": {
+    "ruplace_flag": 0,
+    "routability_opt_flag": 0
+  },
+  "dreamplace_rudy_inflation": {
+    "ruplace_flag": 0,
+    "routability_opt_flag": 1,
+    "adjust_rudy_area_flag": 1,
+    "adjust_pin_area_flag": 0
+  },
+  "route_inflation": {
+    "ruplace_flag": 1,
+    "routability_opt_flag": 1,
+    "ruplace_proxy": "gpugr",
+    "ruplace_plugins": ["route_inflation"]
+  },
+  "momentum_inflation": {
+    "ruplace_flag": 1,
+    "routability_opt_flag": 1,
+    "ruplace_proxy": "rudy",
+    "ruplace_plugins": ["momentum_inflation"]
+  },
+  "path_inflation": {
+    "ruplace_flag": 1,
+    "routability_opt_flag": 1,
+    "ruplace_proxy": "rudy",
+    "ruplace_plugins": ["path_inflation"]
+  },
+  "local_gradient": {
+    "ruplace_flag": 1,
+    "routability_opt_flag": 1,
+    "ruplace_proxy": "rudy",
+    "ruplace_plugins": ["local_gradient"]
+  },
+  "poisson_force": {
+    "ruplace_flag": 1,
+    "routability_opt_flag": 1,
+    "ruplace_proxy": "rudy",
+    "ruplace_plugins": ["poisson_force"]
+  },
+  "net_weighting": {
+    "ruplace_flag": 1,
+    "routability_opt_flag": 1,
+    "ruplace_proxy": "rudy",
+    "ruplace_plugins": ["net_weighting"]
+  },
+  "net_overlap": {
+    "ruplace_flag": 1,
+    "routability_opt_flag": 1,
+    "ruplace_proxy": "rudy",
+    "ruplace_plugins": ["net_overlap"]
+  },
+  "pin_porosity": {
+    "ruplace_flag": 1,
+    "routability_opt_flag": 1,
+    "ruplace_proxy": "rudy_pin",
+    "ruplace_plugins": ["pin_porosity"]
+  },
+  "whitespace": {
+    "ruplace_flag": 1,
+    "routability_opt_flag": 1,
+    "ruplace_proxy": "rudy",
+    "ruplace_plugins": ["whitespace"]
+  },
+  "routeforce": {
+    "ruplace_flag": 1,
+    "routability_opt_flag": 1,
+    "ruplace_proxy": "gpugr",
+    "ruplace_external_route_eval": 0,
+    "ruplace_plugins": ["routeforce"]
+  },
+  "adaptive_composite": {
+    "ruplace_flag": 1,
+    "routability_opt_flag": 1,
+    "ruplace_proxy": "rudy_pin",
+    "ruplace_plugins": [
+      "momentum_inflation",
+      "local_gradient",
+      "poisson_force",
+      "net_weighting",
+      "pin_porosity",
+      "whitespace"
+    ]
+  }
+}

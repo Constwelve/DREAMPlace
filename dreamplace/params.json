@@ -392,6 +392,114 @@
     "description" : "EMA decay for RUPlace ADMM anchor update when ruplace_admm_anchor_update is ema",
     "default" : 0.9
     },
+"ruplace_plugins" : {
+    "description" : "independent routability operations, as a list or comma-separated string; empty preserves the legacy RUPlace controller",
+    "default" : []
+    },
+"ruplace_proxy" : {
+    "description" : "congestion proxy for plugins: gpugr, xplace, rudy, pin_density, nctugr, or rudy_pin",
+    "default" : "gpugr"
+    },
+"ruplace_proxy_refresh_interval" : {
+    "description" : "placement iterations between congestion proxy refreshes",
+    "default" : 20
+    },
+"ruplace_proxy_route_weight" : {
+    "description" : "RUDY weight in the rudy_pin composite proxy",
+    "default" : 0.75
+    },
+"ruplace_proxy_pin_weight" : {
+    "description" : "pin-density weight in the rudy_pin composite proxy",
+    "default" : 0.25
+    },
+"ruplace_plugin_start_overflow" : {
+    "description" : "density overflow threshold at which gradient-based routability plugins become active",
+    "default" : 1.0
+    },
+"ruplace_momentum_rounds" : {
+    "description" : "maximum momentum-inflation rounds",
+    "default" : 8
+    },
+"ruplace_momentum_beta" : {
+    "description" : "momentum coefficient for cell-inflation updates",
+    "default" : 0.8
+    },
+"ruplace_momentum_step" : {
+    "description" : "step size for momentum cell-inflation updates",
+    "default" : 0.5
+    },
+"ruplace_path_inflate_rounds" : {
+    "description" : "maximum routing-path footprint inflation rounds",
+    "default" : 8
+    },
+"ruplace_path_inflate_gamma" : {
+    "description" : "routing-path footprint inflation strength",
+    "default" : 0.35
+    },
+"ruplace_local_gradient_weight" : {
+    "description" : "local congestion-gradient objective weight",
+    "default" : 0.05
+    },
+"ruplace_local_gradient_smooth" : {
+    "description" : "smoothing radius for the local congestion-gradient map",
+    "default" : 1
+    },
+"ruplace_poisson_weight" : {
+    "description" : "global Poisson/Coulomb congestion-force weight",
+    "default" : 0.05
+    },
+"ruplace_poisson_smooth" : {
+    "description" : "smoothing radius for the Poisson congestion charge map",
+    "default" : 1
+    },
+"ruplace_net_weight_freq" : {
+    "description" : "placement iterations between congestion-aware net-weight updates",
+    "default" : 20
+    },
+"ruplace_net_weight_gamma" : {
+    "description" : "congestion-aware net-weight scaling strength",
+    "default" : 0.25
+    },
+"ruplace_net_weight_max" : {
+    "description" : "maximum multiplier for congestion-aware net weights",
+    "default" : 3.0
+    },
+"ruplace_net_overlap_weight" : {
+    "description" : "net-overlap removal gradient weight",
+    "default" : 0.05
+    },
+"ruplace_net_overlap_smooth" : {
+    "description" : "smoothing radius for net-overlap removal",
+    "default" : 2
+    },
+"ruplace_pin_porosity_rounds" : {
+    "description" : "maximum pin-density and macro-porosity padding rounds",
+    "default" : 4
+    },
+"ruplace_pin_porosity_gamma" : {
+    "description" : "pin-density and macro-porosity padding strength",
+    "default" : 0.25
+    },
+"ruplace_porosity_weight" : {
+    "description" : "macro-porosity contribution relative to pin overflow",
+    "default" : 0.25
+    },
+"ruplace_porosity_radius" : {
+    "description" : "macro-porosity smoothing radius in routing bins",
+    "default" : 3
+    },
+"ruplace_macro_area_threshold" : {
+    "description" : "fixed-node macro threshold as a multiple of median movable-cell area",
+    "default" : 16.0
+    },
+"ruplace_whitespace_weight" : {
+    "description" : "regional whitespace-allocation gradient weight",
+    "default" : 0.03
+    },
+"ruplace_whitespace_radius" : {
+    "description" : "low-pass congestion radius for whitespace allocation",
+    "default" : 5
+    },
 "timing_opt_flag" : {
     "description" : "whether to turn on timing-driven optimization flag in global placement",
     "default" : 0

@@ -30,6 +30,7 @@ add_subdirectory(nctugr_binary)
 add_subdirectory(adjust_node_area)
 add_subdirectory(gpugr)
 add_subdirectory(routability_opt)
+add_subdirectory(routability_eval)
 # timing operator
 add_subdirectory(pin_weight_sum)
 add_subdirectory(timing)

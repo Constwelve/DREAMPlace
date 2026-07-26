@@ -264,7 +264,7 @@ class RUPlaceQualityTest(unittest.TestCase):
         self.assertIn("Per-Design Results", text)
         self.assertIn("Wirelength Comparison", text)
         self.assertIn("Per-Design Wirelength Comparison", text)
-        self.assertIn("Best GR WL", text)
+        self.assertIn("Lowest GPUGR-reference WL", text)
         self.assertIn("vs dp_hpwl GR WL", text)
         self.assertIn("ispd18_test1", text)
 
