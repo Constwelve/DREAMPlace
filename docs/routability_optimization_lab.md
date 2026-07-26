@@ -216,8 +216,11 @@ plugin activation, rejects candidates outside explicit placement-HPWL and
 GPUGR-wirelength guardrails, and computes a multiobjective Pareto frontier over
 the separately retained placement, RUDY, and GPUGR metrics. It does not add
 cross-backend values into a synthetic score. The emitted JSON records every
-qualified/excluded method and reason; its optional combination specification
-contains only atomic plugin survivors and an explicit proxy/activation grid.
+qualified/excluded method and reason. For a generated tuning campaign, pass its
+provenance file with `--preset-manifest`; selection then retains at most one
+tuned preset per atomic plugin and carries each mechanism-specific strength into
+the optional combination specification. Shared activation thresholds remain an
+explicit pair-level grid instead of being inherited from either atomic preset.
 
 Required controls for a defensible table:
 
