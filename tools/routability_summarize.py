@@ -194,6 +194,38 @@ def write_report(path, comparisons, rows, summary, excluded, baseline):
     path.write_text("\n".join(lines) + "\n")
 
 
+def campaign_gate(root, comparison_keys):
+    status_path = root / "parallel_status.json"
+    if not status_path.exists():
+        return {
+            "parallel_status": "not_present",
+            "expected_comparisons": None,
+            "incomplete_jobs": [],
+            "missing_comparisons": [],
+        }
+    jobs = json.loads(status_path.read_text()).get("jobs", [])
+    expected = {(str(job["case"]), int(job["seed"])) for job in jobs}
+    incomplete = [
+        {
+            "case": str(job["case"]),
+            "seed": int(job["seed"]),
+            "status": str(job.get("status", "missing")),
+            "returncode": job.get("returncode", ""),
+        }
+        for job in jobs if job.get("status") != "completed"
+    ]
+    missing = [
+        {"case": case, "seed": seed}
+        for case, seed in sorted(expected - comparison_keys)
+    ]
+    return {
+        "parallel_status": str(status_path),
+        "expected_comparisons": len(expected),
+        "incomplete_jobs": incomplete,
+        "missing_comparisons": missing,
+    }
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--campaign-dir", type=Path, required=True)
@@ -216,6 +248,7 @@ def main(argv=None):
 
     baselines = add_baseline_deltas(rows, args.baseline)
     comparison_keys = {(row["case"], row["seed"]) for row in rows}
+    gate = campaign_gate(root, comparison_keys)
     backends_by_comparison = defaultdict(set)
     for row in rows:
         backends_by_comparison[(row["case"], row["seed"])].add(row["backend"])
@@ -237,6 +270,7 @@ def main(argv=None):
         "validated_comparisons": valid_comparisons,
         "excluded": excluded,
         "baseline_gaps": baseline_gaps,
+        **gate,
         "rows": summary,
     }, indent=2, sort_keys=True) + "\n")
     write_report(
@@ -244,7 +278,11 @@ def main(argv=None):
         excluded, args.baseline,
     )
     return 0 if (
-        paths and valid_comparisons == len(paths) and not baseline_gaps
+        paths
+        and valid_comparisons == len(paths)
+        and not baseline_gaps
+        and not gate["incomplete_jobs"]
+        and not gate["missing_comparisons"]
     ) else 1
 
 

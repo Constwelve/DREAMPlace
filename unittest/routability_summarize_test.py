@@ -110,6 +110,34 @@ class RoutabilitySummarizeTest(unittest.TestCase):
         self.assertEqual(status, 1)
         self.assertEqual(len(data["baseline_gaps"]), 2)
 
+    def test_partial_parallel_campaign_fails_gate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            campaign = root / "campaign"
+            comparison = campaign / "case_a" / "seed_1" / "methods"
+            comparison.mkdir(parents=True)
+            (comparison / "comparison.json").write_text(json.dumps({
+                "validation": {"status": "validated"},
+                "placements": [
+                    {"method": "hpwl", "status": "ok", "placement_hpwl": 100.0},
+                ],
+                "results": [result("hpwl", "rudy", {"overflow_sum": 8.0})],
+            }))
+            (campaign / "parallel_status.json").write_text(json.dumps({"jobs": [
+                {"case": "case_a", "seed": 1, "status": "completed", "returncode": 0},
+                {"case": "case_b", "seed": 2, "status": "running", "returncode": ""},
+            ]}))
+            output = root / "summary"
+            status = main([
+                "--campaign-dir", str(campaign), "--output-dir", str(output),
+            ])
+            data = json.loads((output / "screening_summary.json").read_text())
+
+        self.assertEqual(status, 1)
+        self.assertEqual(data["expected_comparisons"], 2)
+        self.assertEqual(data["incomplete_jobs"][0]["status"], "running")
+        self.assertEqual(data["missing_comparisons"], [{"case": "case_b", "seed": 2}])
+
 
 if __name__ == "__main__":
     unittest.main()
