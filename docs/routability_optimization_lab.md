@@ -199,6 +199,14 @@ result through either campaign layer with `--presets`; both
 the comparison runner. Survivor selection should precede generation so the
 search remains statistically and computationally tractable.
 
+After freezing survivors, use `tools/routability_golden_replay.py` to copy their
+placed DEFs and mapped configs into a separate artifact tree and evaluate only
+OpenROAD and/or Innovus. The replay rejects incomplete source campaigns,
+unvalidated source comparisons, failed placements, fallback evaluators, and
+missing DEFs. Its output uses the same comparison and parallel-status schemas,
+so `tools/routability_summarize.py` applies the identical completion, baseline,
+coverage, and case-level confidence gates to golden results.
+
 Required controls for a defensible table:
 
 1. Same input revision, LEFs, DEF topology, netlist, target density, bins, seed, optimizer, and placement iteration budget.
