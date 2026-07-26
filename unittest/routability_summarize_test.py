@@ -64,6 +64,16 @@ class RoutabilitySummarizeTest(unittest.TestCase):
         )
         self.assertEqual(indexed[("rudy", "overflow_sum", "plugin")]["wins"], "1")
         self.assertEqual(indexed[("gpugr", "gr_wirelength", "plugin")]["losses"], "1")
+        self.assertAlmostEqual(
+            float(indexed[("rudy", "overflow_sum", "plugin")]["mean_delta"]),
+            -2.0,
+        )
+        self.assertEqual(
+            indexed[("rudy", "overflow_sum", "plugin")]["case_count"], "1"
+        )
+        self.assertEqual(
+            indexed[("rudy", "overflow_sum", "plugin")]["case_ci95_low_pct"], ""
+        )
 
     def test_unvalidated_comparison_is_excluded_and_fails_gate(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -137,6 +147,13 @@ class RoutabilitySummarizeTest(unittest.TestCase):
         self.assertEqual(data["expected_comparisons"], 2)
         self.assertEqual(data["incomplete_jobs"][0]["status"], "running")
         self.assertEqual(data["missing_comparisons"], [{"case": "case_b", "seed": 2}])
+        plugin = next(
+            row for row in data["rows"]
+            if row["backend"] == "rudy" and row["method"] == "hpwl"
+        )
+        self.assertEqual(plugin["valid_count"], 1)
+        self.assertEqual(plugin["expected_count"], 2)
+        self.assertFalse(plugin["statistically_supported"])
 
 
 if __name__ == "__main__":

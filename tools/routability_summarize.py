@@ -21,6 +21,15 @@ PRIMARY_METRICS = {
     ),
 }
 
+T_CRITICAL_95 = {
+    1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571,
+    6: 2.447, 7: 2.365, 8: 2.306, 9: 2.262, 10: 2.228,
+    11: 2.201, 12: 2.179, 13: 2.160, 14: 2.145, 15: 2.131,
+    16: 2.120, 17: 2.110, 18: 2.101, 19: 2.093, 20: 2.086,
+    21: 2.080, 22: 2.074, 23: 2.069, 24: 2.064, 25: 2.060,
+    26: 2.056, 27: 2.052, 28: 2.048, 29: 2.045, 30: 2.042,
+}
+
 
 def finite_number(value):
     return isinstance(value, (int, float)) and math.isfinite(value)
@@ -109,27 +118,57 @@ def add_baseline_deltas(rows, baseline):
         for metric in PRIMARY_METRICS.get(row["backend"], ()):
             value = row.get(metric)
             base_value = base.get(metric)
-            if finite_number(value) and finite_number(base_value) and base_value != 0:
-                row[metric + "_delta_pct"] = (value / base_value - 1.0) * 100.0
+            if finite_number(value) and finite_number(base_value):
+                row[metric + "_baseline"] = base_value
+                row[metric + "_delta"] = value - base_value
+                if base_value != 0:
+                    row[metric + "_delta_pct"] = (value / base_value - 1.0) * 100.0
     return baselines
 
 
-def summarize(rows, baselines):
+def mean_ci95(values):
+    if len(values) < 2:
+        return None, None
+    mean = statistics.fmean(values)
+    critical = T_CRITICAL_95.get(len(values) - 1, 1.96)
+    margin = critical * statistics.stdev(values) / math.sqrt(len(values))
+    return mean - margin, mean + margin
+
+
+def summarize(rows, baselines, expected_override=None, campaign_complete=True):
     groups = defaultdict(list)
     for row in rows:
         for metric in PRIMARY_METRICS.get(row["backend"], ()):
             delta = row.get(metric + "_delta_pct")
             if finite_number(delta):
-                groups[(row["backend"], metric, row["method"])].append(delta)
+                groups[(row["backend"], metric, row["method"])].append({
+                    "case": row["case"],
+                    "value": row[metric],
+                    "baseline": row[metric + "_baseline"],
+                    "delta": row[metric + "_delta"],
+                    "delta_pct": delta,
+                })
 
     expected = defaultdict(int)
     for _, _, backend in baselines:
         expected[backend] += 1
+    if expected_override is not None:
+        for backend in list(expected):
+            expected[backend] = expected_override
 
     summary = []
-    for (backend, metric, method), values in sorted(groups.items()):
+    for (backend, metric, method), observations in sorted(groups.items()):
+        values = [item["delta_pct"] for item in observations]
+        case_groups = defaultdict(list)
+        for item in observations:
+            case_groups[item["case"]].append(item["delta_pct"])
+        case_means = [statistics.fmean(case_groups[case]) for case in sorted(case_groups)]
+        ci_low, ci_high = mean_ci95(case_means)
         wins = sum(value < 0 for value in values)
         ties = sum(abs(value) <= 1e-12 for value in values)
+        case_wins = sum(value < 0 for value in case_means)
+        case_ties = sum(abs(value) <= 1e-12 for value in case_means)
+        full_coverage = len(values) == expected[backend]
         summary.append({
             "backend": backend,
             "metric": metric,
@@ -140,6 +179,27 @@ def summarize(rows, baselines):
             "median_delta_pct": statistics.median(values),
             "best_delta_pct": min(values),
             "worst_delta_pct": max(values),
+            "mean_value": statistics.fmean(item["value"] for item in observations),
+            "median_value": statistics.median(item["value"] for item in observations),
+            "mean_baseline": statistics.fmean(
+                item["baseline"] for item in observations
+            ),
+            "mean_delta": statistics.fmean(item["delta"] for item in observations),
+            "median_delta": statistics.median(item["delta"] for item in observations),
+            "case_count": len(case_means),
+            "case_mean_delta_pct": statistics.fmean(case_means),
+            "case_ci95_low_pct": ci_low,
+            "case_ci95_high_pct": ci_high,
+            "case_wins": case_wins,
+            "case_ties": case_ties,
+            "case_losses": len(case_means) - case_wins - case_ties,
+            "statistically_supported": bool(
+                campaign_complete and full_coverage
+                and ci_high is not None and ci_high < 0
+            ),
+            "consistent_improvement": bool(
+                campaign_complete and full_coverage and wins == len(values)
+            ),
             "wins": wins,
             "ties": ties,
             "losses": len(values) - wins - ties,
@@ -155,15 +215,20 @@ def write_csv(path, rows):
         writer.writerows(rows)
 
 
-def write_report(path, comparisons, rows, summary, excluded, baseline):
+def write_report(path, comparisons, rows, summary, excluded, baseline, gate):
+    expected = gate["expected_comparisons"]
+    comparison_text = str(comparisons) if expected is None else "%d/%d" % (
+        comparisons, expected
+    )
     lines = [
         "# Routability Screening Summary",
         "",
         "- Baseline: `%s`" % baseline,
-        "- Validated comparisons: `%d`" % comparisons,
+        "- Validated comparisons: `%s`" % comparison_text,
         "- Raw backend rows: `%d`" % len(rows),
         "- Excluded comparisons: `%d`" % len(excluded),
         "- Negative deltas are improvements; backends are ranked separately.",
+        "- Confidence intervals use per-design means, so repeated seeds are not treated as independent designs.",
         "",
     ]
     for backend, metrics in PRIMARY_METRICS.items():
@@ -178,15 +243,19 @@ def write_report(path, comparisons, rows, summary, excluded, baseline):
             lines.extend([
                 "## %s: %s" % (backend, metric),
                 "",
-                "| Method | Mean delta | Median | Worst | W/T/L | Coverage |",
-                "|---|---:|---:|---:|---:|---:|",
+                "| Method | Mean delta | Case 95% CI | Median | Worst | Pair W/T/L | Case W/T/L | Coverage |",
+                "|---|---:|---:|---:|---:|---:|---:|---:|",
             ])
             for row in ranking:
+                interval = "n/a" if row["case_ci95_low_pct"] is None else "%.3f%% to %.3f%%" % (
+                    row["case_ci95_low_pct"], row["case_ci95_high_pct"]
+                )
                 lines.append(
-                    "| %s | %.3f%% | %.3f%% | %.3f%% | %d/%d/%d | %d/%d |" % (
+                    "| %s | %.3f%% | %s | %.3f%% | %.3f%% | %d/%d/%d | %d/%d/%d | %d/%d |" % (
                         row["method"], row["mean_delta_pct"],
-                        row["median_delta_pct"], row["worst_delta_pct"],
+                        interval, row["median_delta_pct"], row["worst_delta_pct"],
                         row["wins"], row["ties"], row["losses"],
+                        row["case_wins"], row["case_ties"], row["case_losses"],
                         row["valid_count"], row["expected_count"],
                     )
                 )
@@ -260,7 +329,12 @@ def main(argv=None):
                     "case": case, "seed": seed, "backend": backend,
                     "baseline": args.baseline,
                 })
-    summary = summarize(rows, baselines)
+    campaign_complete = not gate["incomplete_jobs"] and not gate["missing_comparisons"]
+    expected_override = None if campaign_complete else gate["expected_comparisons"]
+    summary = summarize(
+        rows, baselines, expected_override=expected_override,
+        campaign_complete=campaign_complete,
+    )
     args.output_dir.mkdir(parents=True, exist_ok=True)
     write_csv(args.output_dir / "screening_raw.csv", rows)
     write_csv(args.output_dir / "screening_summary.csv", summary)
@@ -275,7 +349,7 @@ def main(argv=None):
     }, indent=2, sort_keys=True) + "\n")
     write_report(
         args.output_dir / "report.md", valid_comparisons, rows, summary,
-        excluded, args.baseline,
+        excluded, args.baseline, gate,
     )
     return 0 if (
         paths
