@@ -1,6 +1,6 @@
 # Routability Lab Validation Status
 
-Validated on 2026-07-26 in the isolated worktree
+Validated through 2026-07-27 in the isolated worktree
 `.worktrees/ruplace-routability` on branch `feat/routability-lab`. The main
 DREAMPlace checkout was not modified.
 
@@ -139,19 +139,25 @@ row: HPWL `88,079.48`, overflow `0.9502155`, and placement runtime `5.25 s`.
 ## Real-design status
 
 The manifests include BP_quad, OpenC910, Mempool, NVDLA-L, XScore, and the
-TILOS NVDLA partition. TaiWei cases remain restricted to technology/cell LEFs,
-`2_2_floorplan_io.def`, and `1_synth.v` or a sanitized equivalent.
+TILOS NVDLA partition. TaiWei cases remain restricted to technology/cell LEFs
+and the topology-matched `2_2_floorplan_io.def`/`2_2_floorplan_io.v` pair. The
+older `1_synth.v` files are stale relative to Innovus placement optimization
+and must not be used to reconstruct these inputs.
 
 - The approximately 145k-cell TILOS NVDLA partition has existing paths and a
   successful campaign dry run.
-- BP_quad and OpenC910 now have topology-gated, connectivity-complete 2D DEFs.
-  The earlier use of `1_synth.v` was stale relative to Innovus placement
-  optimization. The paired `2_2_floorplan_io.v` files match every physical
-  component: BP_quad materialized 795,816 components and 1,024,037 nets;
-  OpenC910 materialized 938,955 components and 943,510 nets. One-iteration GPU
-  probes completed with positive HPWL and nonzero RUDY maps. These probes prove
-  parser/runtime readiness, not converged placement QoR. Mempool, NVDLA-L, and
-  XScore still require the same materialization and runtime gate.
+- All five requested TaiWei designs now have topology-gated,
+  connectivity-complete 2D DEFs. The paired `2_2_floorplan_io.v` files match
+  every physical component: BP_quad materialized 795,816 components and
+  1,024,037 regular nets; OpenC910 938,955/943,510; Mempool
+  2,579,164/2,958,566; NVDLA-L 2,229,371/2,735,899; and XScore
+  3,617,126/4,139,353. Every materializer report records component and physical
+  match ratios of 1.0 and zero unplaced linked components.
+- One-iteration GPU probes for all five materialized designs completed with
+  positive HPWL, nonzero RUDY demand, and at least 99.89% of parsed pins inside
+  the routing region. Their density overflows remain approximately 0.999, so
+  these probes prove parser/evaluator/runtime readiness only. They are not
+  converged placement QoR and must not be included in method rankings.
 - Direct NVDLA-partition input evaluation is not a valid placed-design
   comparison. Although all components are marked `PLACED`, they are collapsed
   at `(0, 0)`, outside the parsed routing core after coordinate normalization.
@@ -171,16 +177,14 @@ TILOS NVDLA partition. TaiWei cases remain restricted to technology/cell LEFs,
 
 ## Work still required for defensible comparisons
 
-1. Materialize and smoke-test Mempool, NVDLA-L, and XScore with their paired
-   2D-stage Verilog before optimizing them. BP_quad and OpenC910 have passed
-   this topology/runtime gate; a router crash or invalid map is still not a
-   placement result.
-2. Tune activation schedules on a development set, then freeze them before a
+1. Tune activation schedules on a development set, then freeze them before a
    held-out comparison. Thresholds `1.0` and `0.8` activate but hurt OpenROAD;
    the normal `0.2` area schedule does not fire in the reduced run.
-3. Run the full contest suite with multiple seeds and full convergence. Attempt
+2. Run the full contest suite with multiple seeds and full convergence. Attempt
    both OpenROAD and Innovus as golden validators; use RUDY and bundled GPUGR
    only where neither golden validator can cover every compared method.
+3. Select robust single-method survivors, generate bounded combinations, and
+   compare them without tuning on the held-out cases.
 4. Report legality, HPWL, routed WL, vias, overflow/shorts, runtime, failures,
    and confidence intervals. Do not rank by a single normalized congestion
    score.
@@ -208,3 +212,4 @@ TILOS NVDLA partition. TaiWei cases remain restricted to technology/cell LEFs,
 - `results/routability_lab/real_design_inputs`
 - `results/routability_lab/openc910_materialized_probe`
 - `results/routability_lab/bp_quad_materialized_probe`
+- `results/routability_lab/remaining_materialized_real_probes`
