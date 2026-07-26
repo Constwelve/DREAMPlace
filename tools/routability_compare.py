@@ -261,6 +261,7 @@ def parse_plugin_summaries(text):
                     "area_attempts": 0,
                     "area_activations": 0,
                     "metrics": {},
+                    "metric_stats": {},
                 },
             )
             for key in (
@@ -269,11 +270,45 @@ def parse_plugin_summaries(text):
             ):
                 stats[key] += int(raw.get(key, 0))
             stats["metrics"] = raw.get("metrics", {})
+            for metric, values in raw.get("metric_stats", {}).items():
+                count = int(values.get("count", 0))
+                if count <= 0:
+                    continue
+                value_min = float(values["min"])
+                value_max = float(values["max"])
+                combined = stats["metric_stats"].setdefault(
+                    metric,
+                    {
+                        "count": 0,
+                        "nonzero_count": 0,
+                        "sum": 0.0,
+                        "min": value_min,
+                        "max": value_max,
+                        "last": float(values["last"]),
+                    },
+                )
+                combined["count"] += count
+                combined["nonzero_count"] += int(values.get("nonzero_count", 0))
+                combined["sum"] += float(values["mean"]) * count
+                combined["min"] = min(combined["min"], value_min)
+                combined["max"] = max(combined["max"], value_max)
+                combined["last"] = float(values["last"])
 
     total_attempts = 0
     total_activations = 0
     active_plugins = 0
     for stats in aggregate["plugins"].values():
+        stats["metric_stats"] = {
+            metric: {
+                "count": values["count"],
+                "nonzero_count": values["nonzero_count"],
+                "min": values["min"],
+                "max": values["max"],
+                "mean": values["sum"] / values["count"],
+                "last": values["last"],
+            }
+            for metric, values in stats["metric_stats"].items()
+        }
         stats["attempts"] = stats["gradient_attempts"] + stats["area_attempts"]
         stats["activations"] = (
             stats["gradient_activations"] + stats["area_activations"]

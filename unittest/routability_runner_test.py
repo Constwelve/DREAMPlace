@@ -158,14 +158,18 @@ class RoutabilityRunnerTest(unittest.TestCase):
             '"gradient_gate_skips":1,"area_calls":2,"area_gate_skips":0},'
             '"plugins":{"local_gradient":{"gradient_attempts":2,'
             '"gradient_activations":2,"area_attempts":0,"area_activations":0,'
-            '"metrics":{}},"pin_porosity":{"gradient_attempts":0,'
+            '"metrics":{"field_norm":0.0},"metric_stats":{"field_norm":'
+            '{"count":2,"nonzero_count":1,"min":0.0,"max":2.0,'
+            '"mean":1.0,"last":0.0}}},"pin_porosity":{"gradient_attempts":0,'
             '"gradient_activations":0,"area_attempts":2,"area_activations":0,'
             '"metrics":{"changed":false}}}}',
             'INFO ROUTABILITY_PLUGIN_SUMMARY {"pipeline":{"gradient_calls":1,'
             '"gradient_gate_skips":0,"area_calls":0,"area_gate_skips":0},'
             '"plugins":{"local_gradient":{"gradient_attempts":1,'
             '"gradient_activations":1,"area_attempts":0,"area_activations":0,'
-            '"metrics":{}}}}',
+            '"metrics":{"field_norm":4.0},"metric_stats":{"field_norm":'
+            '{"count":1,"nonzero_count":1,"min":4.0,"max":4.0,'
+            '"mean":4.0,"last":4.0}}}}}',
         ])
         result = parse_plugin_summaries(logs)
         self.assertEqual(result["routability_plugin_status"], "partially_active")
@@ -175,6 +179,15 @@ class RoutabilityRunnerTest(unittest.TestCase):
             result["routability_plugin_summary"]["plugins"]["pin_porosity"]["status"],
             "attempted_no_change",
         )
+        metric = result["routability_plugin_summary"]["plugins"][
+            "local_gradient"
+        ]["metric_stats"]["field_norm"]
+        self.assertEqual(metric["count"], 3)
+        self.assertEqual(metric["nonzero_count"], 2)
+        self.assertEqual(metric["min"], 0.0)
+        self.assertEqual(metric["max"], 4.0)
+        self.assertEqual(metric["mean"], 2.0)
+        self.assertEqual(metric["last"], 4.0)
 
     def test_parse_plugin_summaries_marks_baseline_not_selected(self):
         result = parse_plugin_summaries("ordinary placement log")

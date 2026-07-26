@@ -37,6 +37,8 @@ class RoutabilityParallelTest(unittest.TestCase):
             }]}))
             template = root / "template.json"
             template.write_text("{}\n")
+            presets = root / "presets.json"
+            presets.write_text('{"hpwl": {}}\n')
             placer = root / "Placer.py"
             placer.write_text("# placeholder\n")
             output = root / "out"
@@ -47,6 +49,7 @@ class RoutabilityParallelTest(unittest.TestCase):
             ) as popen:
                 status = main([
                     "--manifest", str(manifest), "--template", str(template),
+                    "--presets", str(presets),
                     "--cases", "tiny", "--seeds", "7", "--gpus", "3",
                     "--methods", "hpwl", "--evaluators", "rudy",
                     "--output-dir", str(output),
@@ -60,6 +63,7 @@ class RoutabilityParallelTest(unittest.TestCase):
         self.assertEqual(popen.call_args.kwargs["env"]["CUDA_VISIBLE_DEVICES"], "3")
         command = popen.call_args.args[0]
         self.assertEqual(command[command.index("--random-seed") + 1], "7")
+        self.assertEqual(command[command.index("--presets") + 1], str(presets))
 
 
 if __name__ == "__main__":

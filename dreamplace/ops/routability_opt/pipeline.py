@@ -1,6 +1,7 @@
 """Composable routability optimization pipeline."""
 
 import logging
+import math
 
 import torch
 
@@ -45,6 +46,7 @@ class RoutabilityOptimizationPipeline:
             }
             for plugin in self.plugins
         }
+        self.metric_history = {plugin.name: {} for plugin in self.plugins}
         self.gradient_calls = 0
         self.gradient_gate_skips = 0
         self.area_calls = 0
@@ -54,6 +56,34 @@ class RoutabilityOptimizationPipeline:
             getattr(params, "ruplace_proxy", "gpugr"),
             ",".join(plugin.name for plugin in self.plugins),
         )
+
+    def _record_plugin_metrics(self, plugin):
+        history = self.metric_history[plugin.name]
+        for key, value in plugin.metrics.items():
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+            ):
+                continue
+            value = float(value)
+            stats = history.setdefault(
+                key,
+                {
+                    "count": 0,
+                    "nonzero_count": 0,
+                    "sum": 0.0,
+                    "min": value,
+                    "max": value,
+                    "last": value,
+                },
+            )
+            stats["count"] += 1
+            stats["nonzero_count"] += int(value != 0.0)
+            stats["sum"] += value
+            stats["min"] = min(stats["min"], value)
+            stats["max"] = max(stats["max"], value)
+            stats["last"] = value
 
     @staticmethod
     def _overflow(model):
@@ -77,6 +107,7 @@ class RoutabilityOptimizationPipeline:
             stats = self.counters[plugin.name]
             stats["gradient_attempts"] += 1
             plugin_changed = bool(plugin.apply_gradient(pos, model, self.context))
+            self._record_plugin_metrics(plugin)
             stats["gradient_activations"] += int(plugin_changed)
             changed = plugin_changed or changed
         return changed
@@ -97,6 +128,7 @@ class RoutabilityOptimizationPipeline:
             stats = self.counters[plugin.name]
             stats["area_attempts"] += 1
             plugin_changed = bool(plugin.maybe_adjust_area(pos, model, self.context))
+            self._record_plugin_metrics(plugin)
             stats["area_activations"] += int(plugin_changed)
             changed = plugin_changed or changed
             if plugin_changed:
@@ -122,6 +154,17 @@ class RoutabilityOptimizationPipeline:
                 else "not_reached"
             )
             stats["metrics"] = dict(plugin.metrics)
+            stats["metric_stats"] = {
+                key: {
+                    "count": values["count"],
+                    "nonzero_count": values["nonzero_count"],
+                    "min": values["min"],
+                    "max": values["max"],
+                    "mean": values["sum"] / values["count"],
+                    "last": values["last"],
+                }
+                for key, values in self.metric_history[plugin.name].items()
+            }
             plugins[plugin.name] = stats
         return {
             "pipeline": {

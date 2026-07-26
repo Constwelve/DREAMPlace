@@ -76,6 +76,7 @@ def build_command(args, case_name, seed, result_dir):
     command = [
         sys.executable, str(ROOT / "tools/routability_campaign.py"),
         "--template", str(args.template.resolve()),
+        "--presets", str(args.presets.resolve()),
         "--cases", case_name,
         "--methods", args.methods,
         "--evaluators", args.evaluators,
@@ -97,6 +98,10 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, action="append", required=True)
     parser.add_argument("--template", type=Path, required=True)
+    parser.add_argument(
+        "--presets", type=Path,
+        default=ROOT / "configs/routability_plugins/presets.json",
+    )
     parser.add_argument("--cases", default="")
     parser.add_argument("--seeds", default="1000,2000,3000")
     parser.add_argument("--gpus", default="0,1,2,3")

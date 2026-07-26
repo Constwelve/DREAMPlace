@@ -72,6 +72,33 @@ class RoutabilityPluginMathTest(unittest.TestCase):
             pipeline = RoutabilityOptimizationPipeline(params, db, data, Obj())
         self.assertIs(pipeline.plugins[0].engine, pipeline.plugins[1].engine)
 
+    def test_pipeline_preserves_plugin_metric_history(self):
+        from dreamplace.ops.routability_opt.pipeline import RoutabilityOptimizationPipeline
+
+        params = Obj()
+        params.ruplace_plugins = ["local_gradient"]
+        params.ruplace_proxy = "rudy"
+        params.ruplace_proxy_refresh_interval = 1
+        db = Obj()
+        with mock.patch(
+            "dreamplace.ops.routability_opt.pipeline.build_congestion_proxy",
+            return_value=Obj(),
+        ):
+            pipeline = RoutabilityOptimizationPipeline(params, db, Obj(), Obj())
+        plugin = pipeline.plugins[0]
+        plugin.metrics = {"field_norm": 2.0, "changed": True}
+        pipeline._record_plugin_metrics(plugin)
+        plugin.metrics = {"field_norm": 0.0, "changed": False}
+        pipeline._record_plugin_metrics(plugin)
+
+        stats = pipeline.metrics()["plugins"]["local_gradient"]["metric_stats"]
+        self.assertEqual(stats["field_norm"]["count"], 2)
+        self.assertEqual(stats["field_norm"]["nonzero_count"], 1)
+        self.assertEqual(stats["field_norm"]["max"], 2.0)
+        self.assertEqual(stats["field_norm"]["last"], 0.0)
+        self.assertEqual(stats["field_norm"]["mean"], 1.0)
+        self.assertNotIn("changed", stats)
+
     def test_poisson_solver_is_finite_and_zero_mean(self):
         from dreamplace.ops.routability_opt.plugin_base import poisson_potential
 

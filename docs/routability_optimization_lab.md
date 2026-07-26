@@ -184,6 +184,20 @@ Placement rows also include per-plugin attempts and activations plus an explicit
 This prevents a configured-but-gated method from being reported as a QoR
 comparison. Composite area plugins share one cumulative inflation engine, so a
 later padding operation cannot overwrite an earlier operation's size state.
+Numeric plugin telemetry includes `count`, `nonzero_count`, `min`, `max`,
+`mean`, and `last`. The unsuffixed `metrics` object remains the final sample for
+compatibility; it must not be interpreted as the history of a run. For example,
+a final zero congestion-gradient norm can coexist with earlier nonzero plugin
+activations.
+
+Generate bounded pair/triple and hyperparameter sweeps from a JSON specification
+with `tools/routability_generate_presets.py`. The generator writes both the
+presets and a provenance manifest, requires an explicit congestion proxy, skips
+non-GPUGR `routeforce` combinations, and rejects identity-key overrides. Pass the
+result through either campaign layer with `--presets`; both
+`routability_campaign.py` and `routability_parallel.py` forward the exact file to
+the comparison runner. Survivor selection should precede generation so the
+search remains statistically and computationally tractable.
 
 Required controls for a defensible table:
 

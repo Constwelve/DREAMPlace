@@ -96,6 +96,10 @@ def main(argv=None):
     parser.add_argument(
         "--template", type=Path, default=ROOT / "configs/routability_campaign_template.json"
     )
+    parser.add_argument(
+        "--presets", type=Path,
+        default=ROOT / "configs/routability_plugins/presets.json",
+    )
     parser.add_argument("--cases", default="")
     parser.add_argument("--methods", default="hpwl,dreamplace_rudy_inflation,route_inflation")
     parser.add_argument("--evaluators", default=DEFAULT_EVALUATORS)
@@ -168,6 +172,7 @@ def main(argv=None):
             sys.executable, str(ROOT / "tools/routability_compare.py"),
             "--base-config", str(base_config),
             "--design-name", case.get("design_name", ""),
+            "--presets", str(args.presets.resolve()),
             "--methods", args.methods, "--evaluators", args.evaluators,
             "--output-dir", str(case_dir / "methods"),
             "--dreamplace-entry", str(args.dreamplace_entry),
