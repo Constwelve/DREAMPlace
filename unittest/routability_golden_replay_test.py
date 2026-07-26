@@ -77,6 +77,78 @@ class RoutabilityGoldenReplayTest(unittest.TestCase):
         self.assertEqual(parallel["jobs"][0]["status"], "completed")
         self.assertTrue(copied_def_exists)
 
+    def test_snaps_once_and_reuses_identical_def_for_all_golden_backends(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source"
+            methods = source / "case_a" / "seed_7" / "case_a" / "methods"
+            lef = root / "input.lef"
+            input_def = root / "input.def"
+            lef.write_text("MANUFACTURINGGRID 0.005 ;\nEND LIBRARY\n")
+            input_def.write_text("END DESIGN\n")
+            placements = []
+            for method in ("hpwl", "plugin"):
+                method_dir = methods / method
+                placed = method_dir / "placement" / "input" / "input.gp.def"
+                placed.parent.mkdir(parents=True)
+                placed.write_text(
+                    "UNITS DISTANCE MICRONS 2000 ;\n"
+                    "COMPONENTS 1 ;\n"
+                    "- U1 CELL + PLACED ( 4401541 2591680 ) N ;\n"
+                    "END COMPONENTS\nEND DESIGN\n"
+                )
+                (method_dir / "config.json").write_text(json.dumps({
+                    "lef_input": [str(lef)], "def_input": str(input_def),
+                }))
+                placements.append({"method": method, "status": "ok"})
+            (methods / "comparison.json").write_text(json.dumps({
+                "validation": {"status": "validated"},
+                "placements": placements,
+                "results": [{"design_name": "input"}],
+            }))
+
+            evaluated_defs = []
+
+            def evaluate(request, backend):
+                evaluated_defs.append((backend, Path(request.def_input)))
+                return EvaluationResult(
+                    backend=backend, design_name=request.design_name,
+                    metrics={"wirelength": 10.0},
+                )
+
+            output = root / "golden"
+            with mock.patch(
+                "tools.routability_golden_replay.run_evaluator_subprocess",
+                side_effect=evaluate,
+            ):
+                status = main([
+                    "--source-campaign", str(source), "--output-dir", str(output),
+                    "--methods", "hpwl,plugin",
+                    "--evaluators", "openroad,innovus",
+                    "--snap-manufacturing-grid",
+                ])
+            comparison = json.loads((
+                output / "case_a" / "seed_7" / "case_a" / "methods" /
+                "comparison.json"
+            ).read_text())
+
+            by_method = {}
+            for _, path in evaluated_defs:
+                method = path.parents[1].name
+                by_method.setdefault(method, set()).add(path)
+
+            for paths in by_method.values():
+                self.assertEqual(len(paths), 1)
+                self.assertIn("( 4401540 2591680 )", next(iter(paths)).read_text())
+            self.assertEqual(status, 0)
+            self.assertEqual(set(by_method), {"hpwl", "plugin"})
+            self.assertEqual(len(comparison["preprocessing"]), 2)
+            for row in comparison["preprocessing"]:
+                self.assertEqual(row["operation"], "snap_manufacturing_grid")
+                self.assertEqual(row["status"], "ok")
+                self.assertTrue(Path(row["report"]).exists())
+                self.assertEqual(row["changed_coordinates"], 1)
+
     def test_missing_frozen_def_prevents_subset_validation(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

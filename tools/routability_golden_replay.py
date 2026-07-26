@@ -24,6 +24,7 @@ from tools.routability_compare import (
     run_evaluator_subprocess,
 )
 from tools.routability_parallel import utc_now, write_status
+from tools.routability_snap_def import snap_def
 from tools.routability_summarize import campaign_gate, campaign_identity
 
 
@@ -52,12 +53,13 @@ def failed_result(backend, design_name, error):
     )
 
 
-def write_comparison(path, placements, results, validation, source, rows):
+def write_comparison(path, placements, results, validation, source, preprocessing, rows):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({
         "source_comparison": str(source),
         "validation": validation,
         "placements": placements,
+        "preprocessing": preprocessing,
         "results": results,
     }, indent=2, sort_keys=True) + "\n")
     fields = sorted({key for row in rows for key in row})
@@ -68,7 +70,8 @@ def write_comparison(path, placements, results, validation, source, rows):
 
 
 def replay_comparison(source, source_root, output_root, methods, evaluators,
-                      path_maps, num_threads, timeout_sec):
+                      path_maps, num_threads, timeout_sec,
+                      snap_manufacturing_grid=False):
     case, seed = campaign_identity(source, source_root)
     data = json.loads(source.read_text())
     source_validation_error = ""
@@ -80,6 +83,7 @@ def replay_comparison(source, source_root, output_root, methods, evaluators,
         row.get("method"): row for row in data.get("placements", [])
     }
     selected_placements = []
+    preprocessing = []
     serialized_results = []
     rows = []
     method_results = {method: [] for method in methods}
@@ -125,6 +129,30 @@ def replay_comparison(source, source_root, output_root, methods, evaluators,
             placement_dir.mkdir(parents=True, exist_ok=True)
             placed_def = placement_dir / source_def.name
             shutil.copy2(source_def, placed_def)
+            if snap_manufacturing_grid:
+                snapped_def = placement_dir / (
+                    source_def.name[:-4] + ".manufacturing_grid.def"
+                    if source_def.name.lower().endswith(".def")
+                    else source_def.name + ".manufacturing_grid.def"
+                )
+                snap_report = placement_dir / "manufacturing_grid_snap.json"
+                report = snap_def(
+                    placed_def, config.get("lef_input", []), snapped_def, snap_report
+                )
+                preprocessing.append({
+                    "method": method,
+                    "operation": "snap_manufacturing_grid",
+                    "status": "ok",
+                    "evaluated_def": str(snapped_def.resolve()),
+                    "report": str(snap_report.resolve()),
+                    "input_sha256": report["input_sha256"],
+                    "output_sha256": report["output_sha256"],
+                    "changed_components": report["changed_components"],
+                    "changed_coordinates": report["changed_coordinates"],
+                    "max_delta_x_dbu": report["max_delta_x_dbu"],
+                    "max_delta_y_dbu": report["max_delta_y_dbu"],
+                })
+                placed_def = snapped_def
             config["result_dir"] = str(placement_dir.resolve())
             (output_method / "config.json").write_text(
                 json.dumps(config, indent=2, sort_keys=True) + "\n"
@@ -161,7 +189,8 @@ def replay_comparison(source, source_root, output_root, methods, evaluators,
     validation = apply_validation_policy(method_results, rows, serialized_results)
     comparison = output_methods / "comparison.json"
     write_comparison(
-        comparison, selected_placements, serialized_results, validation, source, rows
+        comparison, selected_placements, serialized_results, validation, source,
+        preprocessing, rows
     )
     return case, seed, validation["status"] == "validated", comparison
 
@@ -176,6 +205,10 @@ def main(argv=None):
     parser.add_argument("--path-map", action="append", default=[])
     parser.add_argument("--num-threads", type=int, default=8)
     parser.add_argument("--timeout-sec", type=int, default=0)
+    parser.add_argument(
+        "--snap-manufacturing-grid", action="store_true",
+        help="snap component locations once before replaying all golden evaluators",
+    )
     args = parser.parse_args(argv)
 
     source_root = args.source_campaign.resolve()
@@ -224,6 +257,7 @@ def main(argv=None):
         _, _, ok, comparison = replay_comparison(
             path, source_root, args.output_dir, methods, evaluators,
             path_maps, args.num_threads, args.timeout_sec,
+            args.snap_manufacturing_grid,
         )
         job.update({
             "status": "completed" if ok else "failed",
