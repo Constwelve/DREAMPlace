@@ -1,0 +1,58 @@
+{
+  "description": "Topology-gated TaiWei 2D real-design inputs materialized from matching 2_2_floorplan_io DEF and Verilog artifacts.",
+  "cases": [
+    {
+      "name": "taiwei_nangate45_bp_quad_materialized2d",
+      "tech": "nangate45",
+      "source": "taiwei_config2d_materialized",
+      "stage": "2_2_floorplan_io",
+      "benchmark": "taiwei2d",
+      "design_name": "bsg_chip",
+      "lef_input": [
+        "/mnt/nvme0n1/yifan/projs/DREAMPlace/install/benchmarks/ruplace/common/nangate45/lef/NangateOpenCellLibrary.tech.lef",
+        "/mnt/nvme0n1/yifan/projs/DREAMPlace/install/benchmarks/ruplace/common/nangate45/lef/NangateOpenCellLibrary.macro.mod.lef",
+        "/mnt/nvme0n1/yifan/projs/DREAMPlace/install/benchmarks/ruplace/common/nangate45/lef/fakeram/fakeram45_128x116.lef",
+        "/mnt/nvme0n1/yifan/projs/DREAMPlace/install/benchmarks/ruplace/common/nangate45/lef/fakeram/fakeram45_256x48.lef",
+        "/mnt/nvme0n1/yifan/projs/DREAMPlace/install/benchmarks/ruplace/common/nangate45/lef/fakeram/fakeram45_32x32.lef",
+        "/mnt/nvme0n1/yifan/projs/DREAMPlace/install/benchmarks/ruplace/common/nangate45/lef/fakeram/fakeram45_512x64.lef",
+        "/mnt/nvme0n1/yifan/projs/DREAMPlace/install/benchmarks/ruplace/common/nangate45/lef/fakeram/fakeram45_64x124.lef",
+        "/mnt/nvme0n1/yifan/projs/DREAMPlace/install/benchmarks/ruplace/common/nangate45/lef/fakeram/fakeram45_64x62.lef"
+      ],
+      "def_input": "../results/routability_lab/real_design_inputs/bp_quad_2d_connected.def",
+      "verilog_input": "",
+      "eval_verilog_input": "/mnt/nvme0n1/yifan/projs/TaiWei-Pin-3D/results/nangate45_3D/bp_quad/cadence/2_2_floorplan_io.v",
+      "enabled": true,
+      "placement_enabled": true,
+      "notes": "Strictly 2D pre-3D input. OpenROAD materialization matched all 795816 physical components and emitted 1024037 regular nets."
+    },
+    {
+      "name": "taiwei_nangate45_openc910_materialized2d",
+      "tech": "nangate45",
+      "source": "taiwei_config2d_materialized",
+      "stage": "2_2_floorplan_io",
+      "benchmark": "taiwei2d",
+      "design_name": "ct_top",
+      "lef_input": [
+        "/mnt/nvme0n1/yifan/projs/DREAMPlace/install/benchmarks/ruplace/common/nangate45/lef/NangateOpenCellLibrary.tech.lef",
+        "/mnt/nvme0n1/yifan/projs/DREAMPlace/install/benchmarks/ruplace/common/nangate45/lef/NangateOpenCellLibrary.macro.mod.lef",
+        "/mnt/nvme0n1/yifan/projs/DREAMPlace/install/benchmarks/ruplace/common/nangate45/lef/fakeram/fakeram45_1024x32.lef",
+        "/mnt/nvme0n1/yifan/projs/DREAMPlace/install/benchmarks/ruplace/common/nangate45/lef/fakeram/fakeram45_1024x64.lef",
+        "/mnt/nvme0n1/yifan/projs/DREAMPlace/install/benchmarks/ruplace/common/nangate45/lef/fakeram/fakeram45_128x16.lef",
+        "/mnt/nvme0n1/yifan/projs/DREAMPlace/install/benchmarks/ruplace/common/nangate45/lef/fakeram/fakeram45_256x196.lef",
+        "/mnt/nvme0n1/yifan/projs/DREAMPlace/install/benchmarks/ruplace/common/nangate45/lef/fakeram/fakeram45_256x52.lef",
+        "/mnt/nvme0n1/yifan/projs/DREAMPlace/install/benchmarks/ruplace/common/nangate45/lef/fakeram/fakeram45_256x54.lef",
+        "/mnt/nvme0n1/yifan/projs/DREAMPlace/install/benchmarks/ruplace/common/nangate45/lef/fakeram/fakeram45_256x59.lef",
+        "/mnt/nvme0n1/yifan/projs/DREAMPlace/install/benchmarks/ruplace/common/nangate45/lef/fakeram/fakeram45_256x7.lef",
+        "/mnt/nvme0n1/yifan/projs/DREAMPlace/install/benchmarks/ruplace/common/nangate45/lef/fakeram/fakeram45_256x84.lef",
+        "/mnt/nvme0n1/yifan/projs/DREAMPlace/install/benchmarks/ruplace/common/nangate45/lef/fakeram/fakeram45_512x22.lef",
+        "/mnt/nvme0n1/yifan/projs/DREAMPlace/install/benchmarks/ruplace/common/nangate45/lef/fakeram/fakeram45_512x44.lef"
+      ],
+      "def_input": "../results/routability_lab/real_design_inputs/openc910_2d_connected.def",
+      "verilog_input": "",
+      "eval_verilog_input": "/mnt/nvme0n1/yifan/projs/TaiWei-Pin-3D/results/nangate45_3D/openc910/cadence/2_2_floorplan_io.v",
+      "enabled": true,
+      "placement_enabled": true,
+      "notes": "Strictly 2D pre-3D input. OpenROAD materialization matched all 938955 physical components and emitted 943510 regular nets."
+    }
+  ]
+}

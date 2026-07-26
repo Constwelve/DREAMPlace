@@ -223,8 +223,22 @@ Required controls for a defensible table:
 3. Attempt both golden validators. Use RUDY and bundled GPUGR only as the common fallback when golden evaluation cannot run on the case. Keep pin-RUDY, external Xplace, CUGR, and NCTUgr diagnostic-only.
 4. Report routed wirelength, vias, total/max overflow, overflow nets, estimated shorts, and runtime. Do not collapse everything into one score without also showing raw columns.
 5. Separate router failure, unsupported input, timeout, and clean zero overflow.
-6. Use the TaiWei **2D phase** inputs only: technology/cell LEFs, `2_2_floorplan_io.def`, and `1_synth.v` or a sanitized equivalent. Exclude `*_3D.fp.def`, later placed/CTS/routed DEFs, and mixed-tier processed LEFs.
+6. Use the TaiWei **2D phase** inputs only: technology/cell LEFs,
+   `2_2_floorplan_io.def`, and its topology-matched
+   `2_2_floorplan_io.v`. Use `1_synth.v` only when component matching proves
+   that placement did not change topology. Exclude `*_3D.fp.def`, later
+   placed/CTS/routed DEFs, and mixed-tier processed LEFs.
 7. Start with one small smoke design and confirm each plugin changes its intended state before launching a suite.
+
+For Cadence 2D handoffs whose DEF contains components but no regular `NETS`,
+`tools/routability_materialize_def.py` can use OpenROAD to link the original
+synthesized Verilog, overlay `2_2_floorplan_io.def`, and emit a
+connectivity-complete DEF for DREAMPlace. The operation records input/output
+component, pin, and net counts; rejects zero-net or incomplete output; and
+enforces physical-name matching and unplaced-linked-instance gates. DEF-only
+placement is not a valid substitute because it produces a zero-net objective.
+Any physical-only cells or stale netlist-only cells are reported rather than
+silently treated as topology-compatible.
 
 ## Innovus 2D placement pattern study
 

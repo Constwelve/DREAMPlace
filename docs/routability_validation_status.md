@@ -144,8 +144,14 @@ TILOS NVDLA partition. TaiWei cases remain restricted to technology/cell LEFs,
 
 - The approximately 145k-cell TILOS NVDLA partition has existing paths and a
   successful campaign dry run.
-- BP_quad, OpenC910, Mempool, NVDLA-L, and XScore remain reference-only or
-  disabled because their DREAMPlace/DEF/Xplace parser contracts are not clean.
+- BP_quad and OpenC910 now have topology-gated, connectivity-complete 2D DEFs.
+  The earlier use of `1_synth.v` was stale relative to Innovus placement
+  optimization. The paired `2_2_floorplan_io.v` files match every physical
+  component: BP_quad materialized 795,816 components and 1,024,037 nets;
+  OpenC910 materialized 938,955 components and 943,510 nets. One-iteration GPU
+  probes completed with positive HPWL and nonzero RUDY maps. These probes prove
+  parser/runtime readiness, not converged placement QoR. Mempool, NVDLA-L, and
+  XScore still require the same materialization and runtime gate.
 - Direct NVDLA-partition input evaluation is not a valid placed-design
   comparison. Although all components are marked `PLACED`, they are collapsed
   at `(0, 0)`, outside the parsed routing core after coordinate normalization.
@@ -165,9 +171,10 @@ TILOS NVDLA partition. TaiWei cases remain restricted to technology/cell LEFs,
 
 ## Work still required for defensible comparisons
 
-1. Repair large-design topology and power-net contracts before optimizing the
-   requested real designs. A router crash or invalid map is not a placement
-   result.
+1. Materialize and smoke-test Mempool, NVDLA-L, and XScore with their paired
+   2D-stage Verilog before optimizing them. BP_quad and OpenC910 have passed
+   this topology/runtime gate; a router crash or invalid map is still not a
+   placement result.
 2. Tune activation schedules on a development set, then freeze them before a
    held-out comparison. Thresholds `1.0` and `0.8` activate but hurt OpenROAD;
    the normal `0.2` area schedule does not fire in the reduced run.
@@ -198,3 +205,6 @@ TILOS NVDLA partition. TaiWei cases remain restricted to technology/cell LEFs,
 - `results/routability_lab/evaluator_process_isolation_smoke`
 - `results/routability_lab/final_audit_gpu_smoke`
 - `results/routability_lab/final_audit_golden_replay`
+- `results/routability_lab/real_design_inputs`
+- `results/routability_lab/openc910_materialized_probe`
+- `results/routability_lab/bp_quad_materialized_probe`
