@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from unittest import mock
 
@@ -223,6 +225,51 @@ class RoutabilityGoldenReplayTest(unittest.TestCase):
                     "--output-dir", str(root / "out"),
                     "--methods", "hpwl", "--evaluators", "openroad",
                 ])
+
+    def test_runs_case_seed_replays_with_bounded_parallelism(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source"
+            for case, seed in (("case_a", 1), ("case_b", 2)):
+                methods = source / case / ("seed_%d" % seed) / case / "methods"
+                methods.mkdir(parents=True)
+                (methods / "comparison.json").write_text(json.dumps({
+                    "validation": {"status": "validated"},
+                }))
+
+            lock = threading.Lock()
+            active = 0
+            peak_active = 0
+
+            def replay(source_path, source_root, output_root, methods, evaluators,
+                       path_maps, num_threads, timeout_sec,
+                       snap_manufacturing_grid=False):
+                nonlocal active, peak_active
+                with lock:
+                    active += 1
+                    peak_active = max(peak_active, active)
+                time.sleep(0.05)
+                with lock:
+                    active -= 1
+                case = source_path.parts[-5]
+                seed = int(source_path.parts[-4][len("seed_"):])
+                return case, seed, True, output_root / case / "comparison.json"
+
+            output = root / "golden"
+            with mock.patch(
+                "tools.routability_golden_replay.replay_comparison",
+                side_effect=replay,
+            ):
+                status = main([
+                    "--source-campaign", str(source), "--output-dir", str(output),
+                    "--methods", "hpwl,plugin", "--evaluators", "innovus",
+                    "--max-parallel", "2",
+                ])
+            jobs = json.loads((output / "parallel_status.json").read_text())["jobs"]
+
+        self.assertEqual(status, 0)
+        self.assertEqual(peak_active, 2)
+        self.assertTrue(all(job["status"] == "completed" for job in jobs))
 
 
 if __name__ == "__main__":

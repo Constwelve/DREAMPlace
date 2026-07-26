@@ -2,11 +2,13 @@
 """Replay frozen campaign placements with common golden routing backends."""
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import csv
 import json
 from pathlib import Path
 import shutil
 import sys
+import threading
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -206,6 +208,10 @@ def main(argv=None):
     parser.add_argument("--num-threads", type=int, default=8)
     parser.add_argument("--timeout-sec", type=int, default=0)
     parser.add_argument(
+        "--max-parallel", type=int, default=1,
+        help="maximum number of case-seed golden replays to run concurrently",
+    )
+    parser.add_argument(
         "--snap-manufacturing-grid", action="store_true",
         help="snap component locations once before replaying all golden evaluators",
     )
@@ -217,6 +223,8 @@ def main(argv=None):
     selected_cases = {value.strip() for value in args.cases.split(",") if value.strip()}
     if not methods or not evaluators:
         raise ValueError("at least one method and evaluator are required")
+    if args.max_parallel < 1:
+        raise ValueError("max-parallel must be at least one")
     non_golden = [backend for backend in evaluators if validation_role(backend) != "golden"]
     if non_golden:
         raise ValueError(
@@ -250,23 +258,43 @@ def main(argv=None):
     write_status(args.output_dir, jobs)
 
     path_maps = parse_path_maps(args.path_map)
+    status_lock = threading.Lock()
+
+    def run_job(path, job):
+        with status_lock:
+            job.update({"status": "running", "started_at": utc_now()})
+            write_status(args.output_dir, jobs)
+        try:
+            _, _, ok, comparison = replay_comparison(
+                path, source_root, args.output_dir, methods, evaluators,
+                path_maps, args.num_threads, args.timeout_sec,
+                args.snap_manufacturing_grid,
+            )
+            log = str(comparison)
+        except Exception as exc:
+            ok = False
+            error_log = Path(job["result_dir"]) / "golden_replay.error.log"
+            error_log.parent.mkdir(parents=True, exist_ok=True)
+            error_log.write_text("%s: %s\n" % (type(exc).__name__, exc))
+            log = str(error_log.resolve())
+        with status_lock:
+            job.update({
+                "status": "completed" if ok else "failed",
+                "returncode": 0 if ok else 1,
+                "finished_at": utc_now(),
+                "log": log,
+            })
+            write_status(args.output_dir, jobs)
+        return ok
+
     all_ok = True
-    for path, job in zip(paths, jobs):
-        job.update({"status": "running", "started_at": utc_now()})
-        write_status(args.output_dir, jobs)
-        _, _, ok, comparison = replay_comparison(
-            path, source_root, args.output_dir, methods, evaluators,
-            path_maps, args.num_threads, args.timeout_sec,
-            args.snap_manufacturing_grid,
-        )
-        job.update({
-            "status": "completed" if ok else "failed",
-            "returncode": 0 if ok else 1,
-            "finished_at": utc_now(),
-            "log": str(comparison),
-        })
-        all_ok = ok and all_ok
-        write_status(args.output_dir, jobs)
+    with ThreadPoolExecutor(max_workers=min(args.max_parallel, len(jobs))) as executor:
+        futures = [
+            executor.submit(run_job, path, job)
+            for path, job in zip(paths, jobs)
+        ]
+        for future in as_completed(futures):
+            all_ok = future.result() and all_ok
     return 0 if all_ok else 1
 
 
