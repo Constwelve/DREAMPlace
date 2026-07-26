@@ -222,6 +222,12 @@ tuned preset per atomic plugin and carries each mechanism-specific strength into
 the optional combination specification. Shared activation thresholds remain an
 explicit pair-level grid instead of being inherited from either atomic preset.
 
+After atomic and pair settings pass their held-out checks, use
+`tools/routability_freeze_presets.py` to combine their selector outputs with the
+corresponding preset files. The freezer rejects conflicting duplicate method
+definitions, retains one HPWL baseline, and writes exact source/selection
+provenance for the unified finalist placement and golden-routing campaign.
+
 Required controls for a defensible table:
 
 1. Same input revision, LEFs, DEF topology, netlist, target density, bins, seed, optimizer, and placement iteration budget.
