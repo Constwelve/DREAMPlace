@@ -32,6 +32,17 @@ ROUTABILITY_SECONDARY_METRICS = (
 
 ROUTABILITY_DIAGNOSTIC_METRICS = (("placement", "placement_hpwl"),)
 
+ROUTABILITY_BACKEND_CONSTRAINTS = {
+    "gpugr": {
+        "metrics": ("est_shorts", "num_ovfl_nets", "congestion_score"),
+        "minimum_improvements": 2,
+    },
+    "rudy": {
+        "metrics": ("overflow_sum", "congestion_score"),
+        "minimum_improvements": 1,
+    },
+}
+
 
 def load_plugin_states(path):
     states = {}
@@ -164,6 +175,26 @@ def select_survivors(data, plugin_states, baseline="hpwl", max_survivors=5,
             if not improved:
                 reasons.append("no primary routability metric improved")
 
+        if not reasons and selection_policy == "routability_first":
+            for backend, constraint in ROUTABILITY_BACKEND_CONSTRAINTS.items():
+                backend_metrics = [
+                    "%s:%s" % (backend, metric)
+                    for metric in constraint["metrics"]
+                ]
+                improvement_count = sum(
+                    objective_delta(
+                        metrics[name], use_median=name == "rudy:overflow_sum"
+                    ) < 0
+                    for name in backend_metrics
+                )
+                minimum = constraint["minimum_improvements"]
+                if improvement_count < minimum:
+                    reasons.append(
+                        "fewer than %d/%d %s primary metrics improved" % (
+                            minimum, len(backend_metrics), backend.upper()
+                        )
+                    )
+
         record = {
             "method": method,
             "plugins": sorted(state["plugins"]),
@@ -272,6 +303,10 @@ def select_survivors(data, plugin_states, baseline="hpwl", max_survivors=5,
             "numeric_backend_mixing": False,
             "max_survivors": max_survivors,
             "primary_objectives": primary_names if selection_policy == "routability_first" else [],
+            "backend_improvement_constraints": (
+                ROUTABILITY_BACKEND_CONSTRAINTS
+                if selection_policy == "routability_first" else {}
+            ),
             "secondary_objectives": (
                 ["%s:%s" % item for item in ROUTABILITY_SECONDARY_METRICS]
                 if selection_policy == "routability_first" else []

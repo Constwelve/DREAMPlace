@@ -14,10 +14,17 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from dreamplace.ops.routability_eval import EvaluationResult
-from tools.routability_golden_replay import main
+from tools.routability_golden_replay import enforce_golden_metric_contract, main
 
 
 class RoutabilityGoldenReplayTest(unittest.TestCase):
+    def test_golden_replay_forces_detailed_route_metrics(self):
+        config = enforce_golden_metric_contract({
+            "routability_eval_openroad_route_mode": "global",
+        })
+        self.assertEqual(config["routability_eval_openroad_route_mode"], "detailed")
+        self.assertEqual(config["routability_eval_innovus_route_mode"], "detailed")
+
     def test_replays_frozen_defs_with_common_golden_backend(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

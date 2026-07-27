@@ -42,6 +42,14 @@ def remap_config(config, path_maps):
     return result
 
 
+def enforce_golden_metric_contract(config):
+    """Golden replay always includes detailed-route wirelength and DRC."""
+    result = dict(config)
+    result["routability_eval_openroad_route_mode"] = "detailed"
+    result["routability_eval_innovus_route_mode"] = "detailed"
+    return result
+
+
 def source_design_name(data, config):
     for result in data.get("results", []):
         if result.get("design_name"):
@@ -123,7 +131,9 @@ def replay_comparison(source, source_root, output_root, methods, evaluators,
         try:
             if error:
                 raise ValueError(error)
-            config = remap_config(json.loads(config_path.read_text()), path_maps)
+            config = enforce_golden_metric_contract(remap_config(
+                json.loads(config_path.read_text()), path_maps
+            ))
             design_name = source_design_name(data, config)
             source_def = find_placed_def(
                 source_method / "placement", placement_output_name(config)

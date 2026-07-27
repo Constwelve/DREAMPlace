@@ -77,6 +77,40 @@ class RoutabilitySelectSurvivorsTest(unittest.TestCase):
         bad = next(row for row in result["excluded"] if row["method"] == "bad_wl")
         self.assertIn("mean GPUGR wirelength guardrail", bad["reasons"])
 
+    def test_routability_first_requires_backend_local_breadth(self):
+        data = summary()
+        source_rows = [row for row in data["rows"] if row["method"] == "good_a"]
+        for row in source_rows:
+            weak = dict(row)
+            weak["method"] = "one_metric_only"
+            if weak["backend"] == "gpugr" and weak["metric"] == "est_shorts":
+                weak["mean_delta_pct"] = -1.0
+            elif weak["backend"] in ("gpugr", "rudy"):
+                weak["mean_delta_pct"] = 1.0
+                weak["median_delta_pct"] = 1.0
+            data["rows"].append(weak)
+        states = dict(STATES)
+        states["one_metric_only"] = {
+            "statuses": ["active"] * 3,
+            "plugins": {"whitespace"},
+            "rows": 3,
+        }
+
+        result = select_survivors(data, states)
+
+        rejected = next(
+            row for row in result["excluded"]
+            if row["method"] == "one_metric_only"
+        )
+        self.assertIn(
+            "fewer than 2/3 GPUGR primary metrics improved",
+            rejected["reasons"],
+        )
+        self.assertIn(
+            "fewer than 1/2 RUDY primary metrics improved",
+            rejected["reasons"],
+        )
+
     def test_rejects_incomplete_summary(self):
         data = summary()
         data["incomplete_jobs"] = [{"status": "running"}]
