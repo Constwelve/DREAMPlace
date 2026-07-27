@@ -28,14 +28,15 @@ def metric(backend, name, method, mean, worst=None, median=None):
 def summary():
     rows = []
     values = {
-        "good_a": (-1.0, -0.5, -1.0, -2.0, -3.0, -1.0),
-        "good_b": (-0.5, 0.5, -2.0, -1.0, -1.0, -2.0),
-        "bad_wl": (1.0, 20.0, -5.0, -8.0, -9.0, -4.0),
+        "good_a": (-1.0, -0.5, -1.0, -4.0, -3.0, -2.0, -3.0, -1.0),
+        "good_b": (-0.5, 0.5, -2.0, -2.0, -4.0, -1.0, -1.0, -2.0),
+        "bad_wl": (1.0, 20.0, -5.0, -8.0, -7.0, -8.0, -9.0, -4.0),
     }
     for method, value in values.items():
         for (backend, name), mean in zip((
             ("placement", "placement_hpwl"), ("gpugr", "gr_wirelength"),
-            ("gpugr", "gr_vias"), ("gpugr", "congestion_score"),
+            ("gpugr", "gr_vias"), ("gpugr", "est_shorts"),
+            ("gpugr", "num_ovfl_nets"), ("gpugr", "congestion_score"),
             ("rudy", "overflow_sum"), ("rudy", "congestion_score"),
         ), value):
             rows.append(metric(backend, name, method, mean, worst=mean))
@@ -54,8 +55,20 @@ STATES = {
 
 
 class RoutabilitySelectSurvivorsTest(unittest.TestCase):
-    def test_guardrails_and_pareto_selection(self):
+    def test_routability_first_does_not_reject_congestion_for_wirelength(self):
         result = select_survivors(summary(), STATES)
+
+        self.assertIn("bad_wl", result["selected_methods"])
+        self.assertEqual(result["selection_policy"]["name"], "routability_first")
+        self.assertIn(
+            "placement:placement_hpwl",
+            result["selection_policy"]["diagnostic_metrics"],
+        )
+
+    def test_legacy_wirelength_guardrails_remain_reproducible(self):
+        result = select_survivors(
+            summary(), STATES, selection_policy="wirelength_guarded"
+        )
 
         self.assertEqual(set(result["selected_methods"]), {"good_a", "good_b"})
         self.assertEqual(
@@ -156,7 +169,8 @@ class RoutabilitySelectSurvivorsTest(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertEqual(generated["combination_sizes"], [2])
         self.assertEqual(
-            set(generated["plugins"]), {"local_gradient", "net_weighting"}
+            set(generated["plugins"]),
+            {"local_gradient", "net_weighting", "routeforce"},
         )
         self.assertEqual(
             generated["plugin_grids"]["local_gradient"],

@@ -40,6 +40,13 @@ def placement_output_name(config):
     raise ValueError("base config requires aux_input, verilog_input, or def_input")
 
 
+def evaluator_design_name(config):
+    """Return the logical top cell, which may differ from the DEF filename."""
+    return config.get("ruplace_eval_design_name") or Path(
+        config.get("def_input") or config.get("aux_input")
+    ).stem
+
+
 def find_placed_def(result_dir, output_name):
     candidates = [
         result_dir / output_name / (output_name + ".dp.def"),
@@ -74,9 +81,13 @@ def evaluator_options(config, placed_def):
         "routability_eval_cugr_threads": "cugr_threads",
         "routability_eval_nctugr_root": "nctugr_root",
         "routability_eval_openroad_binary": "openroad_binary",
+        "routability_eval_openroad_route_mode": "openroad_route_mode",
+        "routability_eval_openroad_droute_end_iteration": "openroad_droute_end_iteration",
         "routability_eval_cadence_wrapper": "cadence_wrapper",
         "routability_eval_cadence_mounted_root": "cadence_mounted_root",
         "routability_eval_innovus_version": "innovus_version",
+        "routability_eval_innovus_route_mode": "innovus_route_mode",
+        "routability_eval_innovus_droute_end_iteration": "innovus_droute_end_iteration",
     }
     options = {target: config[source] for source, target in mapping.items()
                if config.get(source) not in (None, "")}
@@ -362,7 +373,7 @@ def main(argv=None):
     presets = json.loads(args.presets.read_text())
     methods = [name.strip() for name in args.methods.split(",") if name.strip()]
     evaluators = [name.strip() for name in args.evaluators.split(",") if name.strip()]
-    design_name = args.design_name or Path(base.get("def_input") or base.get("aux_input")).stem
+    design_name = args.design_name or evaluator_design_name(base)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     rows = []
     all_results = []

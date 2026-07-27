@@ -19,6 +19,7 @@ from dreamplace.ops.routability_eval import EvaluationResult
 from tools.routability_compare import (
     DEFAULT_EVALUATORS,
     apply_validation_policy,
+    evaluator_design_name,
     find_placed_def,
     parse_placement_metrics,
     parse_plugin_summaries,
@@ -116,6 +117,17 @@ class RoutabilityRunnerTest(unittest.TestCase):
         self.assertEqual(placement_output_name(config), "chip")
         self.assertEqual(placement_output_name({"def_input": "/d/chip.floorplan.def"}),
                          "chip.floorplan")
+
+    def test_evaluator_design_name_accepts_explicit_top(self):
+        config = {
+            "def_input": "/d/2_2_floorplan_io.def",
+            "ruplace_eval_design_name": "gcd",
+        }
+        self.assertEqual(evaluator_design_name(config), "gcd")
+        self.assertEqual(
+            evaluator_design_name({"def_input": "/d/chip.floorplan.def"}),
+            "chip.floorplan",
+        )
 
     def test_find_placed_def_recurses(self):
         with tempfile.TemporaryDirectory() as tmp:

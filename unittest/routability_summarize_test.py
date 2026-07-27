@@ -41,8 +41,14 @@ class RoutabilitySummarizeTest(unittest.TestCase):
                 "results": [
                     result("hpwl", "rudy", {"overflow_sum": 10.0}),
                     result("plugin", "rudy", {"overflow_sum": 8.0}),
-                    result("hpwl", "gpugr", {"gr_wirelength": 200.0}),
-                    result("plugin", "gpugr", {"gr_wirelength": 220.0}),
+                    result("hpwl", "gpugr", {
+                        "gr_wirelength": 200.0, "est_shorts": 10.0,
+                        "num_ovfl_nets": 4,
+                    }),
+                    result("plugin", "gpugr", {
+                        "gr_wirelength": 220.0, "est_shorts": 5.0,
+                        "num_ovfl_nets": 2,
+                    }),
                 ],
             }))
             output = root / "summary"
@@ -61,6 +67,10 @@ class RoutabilitySummarizeTest(unittest.TestCase):
         self.assertAlmostEqual(
             float(indexed[("gpugr", "gr_wirelength", "plugin")]["mean_delta_pct"]),
             10.0,
+        )
+        self.assertAlmostEqual(
+            float(indexed[("gpugr", "est_shorts", "plugin")]["mean_delta_pct"]),
+            -50.0,
         )
         self.assertEqual(indexed[("rudy", "overflow_sum", "plugin")]["wins"], "1")
         self.assertEqual(indexed[("gpugr", "gr_wirelength", "plugin")]["losses"], "1")
@@ -95,6 +105,44 @@ class RoutabilitySummarizeTest(unittest.TestCase):
         self.assertEqual(status, 1)
         self.assertEqual(data["validated_comparisons"], 0)
         self.assertEqual(len(data["excluded"]), 1)
+
+    def test_zero_baseline_count_keeps_full_coverage_with_absolute_delta(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            comparison = root / "campaign" / "case_a" / "seed_1" / "methods"
+            comparison.mkdir(parents=True)
+            (comparison / "comparison.json").write_text(json.dumps({
+                "validation": {"status": "validated"},
+                "placements": [
+                    {"method": "hpwl", "status": "ok", "placement_hpwl": 100.0},
+                    {"method": "plugin", "status": "ok", "placement_hpwl": 110.0},
+                ],
+                "results": [
+                    result("hpwl", "gpugr", {"est_shorts": 0.0}),
+                    result("plugin", "gpugr", {"est_shorts": 3.0}),
+                ],
+            }))
+            output = root / "summary"
+            status = main([
+                "--campaign-dir", str(root / "campaign"),
+                "--output-dir", str(output),
+            ])
+            data = json.loads((output / "screening_summary.json").read_text())
+
+        row = next(
+            item for item in data["rows"]
+            if item["backend"] == "gpugr"
+            and item["metric"] == "est_shorts"
+            and item["method"] == "plugin"
+        )
+        self.assertEqual(status, 0)
+        self.assertEqual(row["valid_count"], 1)
+        self.assertEqual(row["percent_valid_count"], 0)
+        self.assertEqual(row["mean_delta"], 3.0)
+        self.assertEqual(row["losses"], 1)
+        self.assertEqual(row["case_wins"], 0)
+        self.assertEqual(row["case_ties"], 0)
+        self.assertEqual(row["case_losses"], 1)
 
     def test_validated_comparison_without_hpwl_baseline_fails_gate(self):
         with tempfile.TemporaryDirectory() as tmp:

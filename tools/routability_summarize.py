@@ -13,11 +13,19 @@ import statistics
 PRIMARY_METRICS = {
     "placement": ("placement_hpwl", "density_overflow", "runtime_sec"),
     "rudy": ("overflow_sum", "congestion_score", "utilization_max"),
-    "gpugr": ("gr_wirelength", "gr_vias", "congestion_score"),
-    "openroad": ("wirelength", "vias", "overflow"),
+    "gpugr": (
+        "gr_wirelength", "gr_vias", "est_shorts", "num_ovfl_nets",
+        "overflow_sum", "congestion_score", "utilization_max",
+    ),
+    "openroad": (
+        "wirelength", "vias", "total_overflow", "horizontal_overflow",
+        "vertical_overflow", "horizontal_overflow_edges",
+        "vertical_overflow_edges", "drc_violations",
+    ),
     "innovus": (
-        "wirelength", "vias", "overflow", "horizontal_congestion",
-        "vertical_congestion",
+        "wirelength", "vias", "total_overflow", "horizontal_overflow",
+        "vertical_overflow", "horizontal_congestion", "vertical_congestion",
+        "drc_violations",
     ),
 }
 
@@ -139,14 +147,15 @@ def summarize(rows, baselines, expected_override=None, campaign_complete=True):
     groups = defaultdict(list)
     for row in rows:
         for metric in PRIMARY_METRICS.get(row["backend"], ()):
+            delta_value = row.get(metric + "_delta")
             delta = row.get(metric + "_delta_pct")
-            if finite_number(delta):
+            if finite_number(delta_value):
                 groups[(row["backend"], metric, row["method"])].append({
                     "case": row["case"],
                     "value": row[metric],
                     "baseline": row[metric + "_baseline"],
-                    "delta": row[metric + "_delta"],
-                    "delta_pct": delta,
+                    "delta": delta_value,
+                    "delta_pct": delta if finite_number(delta) else None,
                 })
 
     expected = defaultdict(int)
@@ -158,27 +167,39 @@ def summarize(rows, baselines, expected_override=None, campaign_complete=True):
 
     summary = []
     for (backend, metric, method), observations in sorted(groups.items()):
-        values = [item["delta_pct"] for item in observations]
+        values = [
+            item["delta_pct"] for item in observations
+            if finite_number(item["delta_pct"])
+        ]
+        delta_values = [item["delta"] for item in observations]
         case_groups = defaultdict(list)
+        raw_case_groups = defaultdict(list)
         for item in observations:
-            case_groups[item["case"]].append(item["delta_pct"])
+            raw_case_groups[item["case"]].append(item["delta"])
+            if finite_number(item["delta_pct"]):
+                case_groups[item["case"]].append(item["delta_pct"])
         case_means = [statistics.fmean(case_groups[case]) for case in sorted(case_groups)]
+        raw_case_means = [
+            statistics.fmean(raw_case_groups[case]) for case in sorted(raw_case_groups)
+        ]
         ci_low, ci_high = mean_ci95(case_means)
-        wins = sum(value < 0 for value in values)
-        ties = sum(abs(value) <= 1e-12 for value in values)
-        case_wins = sum(value < 0 for value in case_means)
-        case_ties = sum(abs(value) <= 1e-12 for value in case_means)
-        full_coverage = len(values) == expected[backend]
+        raw_ci_low, raw_ci_high = mean_ci95(raw_case_means)
+        wins = sum(value < 0 for value in delta_values)
+        ties = sum(abs(value) <= 1e-12 for value in delta_values)
+        case_wins = sum(value < 0 for value in raw_case_means)
+        case_ties = sum(abs(value) <= 1e-12 for value in raw_case_means)
+        full_coverage = len(observations) == expected[backend]
         summary.append({
             "backend": backend,
             "metric": metric,
             "method": method,
-            "valid_count": len(values),
+            "valid_count": len(observations),
+            "percent_valid_count": len(values),
             "expected_count": expected[backend],
-            "mean_delta_pct": statistics.fmean(values),
-            "median_delta_pct": statistics.median(values),
-            "best_delta_pct": min(values),
-            "worst_delta_pct": max(values),
+            "mean_delta_pct": statistics.fmean(values) if values else None,
+            "median_delta_pct": statistics.median(values) if values else None,
+            "best_delta_pct": min(values) if values else None,
+            "worst_delta_pct": max(values) if values else None,
             "mean_value": statistics.fmean(item["value"] for item in observations),
             "median_value": statistics.median(item["value"] for item in observations),
             "mean_baseline": statistics.fmean(
@@ -186,23 +207,28 @@ def summarize(rows, baselines, expected_override=None, campaign_complete=True):
             ),
             "mean_delta": statistics.fmean(item["delta"] for item in observations),
             "median_delta": statistics.median(item["delta"] for item in observations),
-            "case_count": len(case_means),
-            "case_mean_delta_pct": statistics.fmean(case_means),
+            "best_delta": min(delta_values),
+            "worst_delta": max(delta_values),
+            "case_count": len(raw_case_means),
+            "case_mean_delta_pct": statistics.fmean(case_means) if case_means else None,
             "case_ci95_low_pct": ci_low,
             "case_ci95_high_pct": ci_high,
+            "case_mean_delta": statistics.fmean(raw_case_means),
+            "case_ci95_low": raw_ci_low,
+            "case_ci95_high": raw_ci_high,
             "case_wins": case_wins,
             "case_ties": case_ties,
-            "case_losses": len(case_means) - case_wins - case_ties,
+            "case_losses": len(raw_case_means) - case_wins - case_ties,
             "statistically_supported": bool(
                 campaign_complete and full_coverage
-                and ci_high is not None and ci_high < 0
+                and raw_ci_high is not None and raw_ci_high < 0
             ),
             "consistent_improvement": bool(
-                campaign_complete and full_coverage and wins == len(values)
+                campaign_complete and full_coverage and wins == len(delta_values)
             ),
             "wins": wins,
             "ties": ties,
-            "losses": len(values) - wins - ties,
+            "losses": len(delta_values) - wins - ties,
         })
     return summary
 
@@ -216,6 +242,9 @@ def write_csv(path, rows):
 
 
 def write_report(path, comparisons, rows, summary, excluded, baseline, gate):
+    def percent(value):
+        return "n/a" if not finite_number(value) else "%.3f%%" % value
+
     expected = gate["expected_comparisons"]
     comparison_text = str(comparisons) if expected is None else "%d/%d" % (
         comparisons, expected
@@ -239,7 +268,11 @@ def write_report(path, comparisons, rows, summary, excluded, baseline, gate):
             ]
             if not ranking:
                 continue
-            ranking.sort(key=lambda row: (row["mean_delta_pct"], row["method"]))
+            ranking.sort(key=lambda row: (
+                row["mean_delta_pct"] if finite_number(row["mean_delta_pct"])
+                else row["mean_delta"],
+                row["method"],
+            ))
             lines.extend([
                 "## %s: %s" % (backend, metric),
                 "",
@@ -251,9 +284,10 @@ def write_report(path, comparisons, rows, summary, excluded, baseline, gate):
                     row["case_ci95_low_pct"], row["case_ci95_high_pct"]
                 )
                 lines.append(
-                    "| %s | %.3f%% | %s | %.3f%% | %.3f%% | %d/%d/%d | %d/%d/%d | %d/%d |" % (
-                        row["method"], row["mean_delta_pct"],
-                        interval, row["median_delta_pct"], row["worst_delta_pct"],
+                    "| %s | %s | %s | %s | %s | %d/%d/%d | %d/%d/%d | %d/%d |" % (
+                        row["method"], percent(row["mean_delta_pct"]),
+                        interval, percent(row["median_delta_pct"]),
+                        percent(row["worst_delta_pct"]),
                         row["wins"], row["ties"], row["losses"],
                         row["case_wins"], row["case_ties"], row["case_losses"],
                         row["valid_count"], row["expected_count"],

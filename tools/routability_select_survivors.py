@@ -4,10 +4,11 @@
 import argparse
 import csv
 import json
+import math
 from pathlib import Path
 
 
-REQUIRED_METRICS = (
+WIRELENGTH_GUARDED_METRICS = (
     ("placement", "placement_hpwl"),
     ("gpugr", "gr_wirelength"),
     ("gpugr", "gr_vias"),
@@ -15,6 +16,21 @@ REQUIRED_METRICS = (
     ("rudy", "overflow_sum"),
     ("rudy", "congestion_score"),
 )
+
+ROUTABILITY_PRIMARY_METRICS = (
+    ("gpugr", "est_shorts"),
+    ("gpugr", "num_ovfl_nets"),
+    ("gpugr", "congestion_score"),
+    ("rudy", "overflow_sum"),
+    ("rudy", "congestion_score"),
+)
+
+ROUTABILITY_SECONDARY_METRICS = (
+    ("gpugr", "gr_wirelength"),
+    ("gpugr", "gr_vias"),
+)
+
+ROUTABILITY_DIAGNOSTIC_METRICS = (("placement", "placement_hpwl"),)
 
 
 def load_plugin_states(path):
@@ -55,10 +71,27 @@ def dominates(left, right, objectives):
     )
 
 
+def objective_delta(row, use_median=False):
+    percent_key = "median_delta_pct" if use_median else "mean_delta_pct"
+    percent_value = row.get(percent_key)
+    if (
+        row.get("percent_valid_count", row.get("valid_count"))
+        == row.get("valid_count")
+        and isinstance(percent_value, (int, float))
+        and math.isfinite(percent_value)
+    ):
+        return percent_value
+    raw_key = "median_delta" if use_median else "mean_delta"
+    return row[raw_key]
+
+
 def select_survivors(data, plugin_states, baseline="hpwl", max_survivors=5,
                      max_hpwl_mean=5.0, max_hpwl_worst=10.0,
                      max_gpugr_wl_mean=5.0, max_gpugr_wl_worst=10.0,
-                     preset_provenance=None):
+                     preset_provenance=None,
+                     selection_policy="routability_first"):
+    if selection_policy not in ("routability_first", "wirelength_guarded"):
+        raise ValueError("unknown selection policy: %s" % selection_policy)
     if not complete_summary(data):
         raise ValueError("screening summary is not a complete validated campaign")
     expected = int(data["expected_comparisons"])
@@ -73,12 +106,23 @@ def select_survivors(data, plugin_states, baseline="hpwl", max_survivors=5,
     })
     qualified = []
     excluded = []
-    objective_names = ["%s:%s" % item for item in REQUIRED_METRICS]
+    if selection_policy == "routability_first":
+        required_metrics = (
+            ROUTABILITY_PRIMARY_METRICS
+            + ROUTABILITY_SECONDARY_METRICS
+            + ROUTABILITY_DIAGNOSTIC_METRICS
+        )
+        objective_metrics = ROUTABILITY_PRIMARY_METRICS + ROUTABILITY_SECONDARY_METRICS
+    else:
+        required_metrics = WIRELENGTH_GUARDED_METRICS
+        objective_metrics = WIRELENGTH_GUARDED_METRICS
+    objective_names = ["%s:%s" % item for item in objective_metrics]
+    primary_names = ["%s:%s" % item for item in ROUTABILITY_PRIMARY_METRICS]
 
     for method in methods:
         metrics = {}
         reasons = []
-        for backend, metric in REQUIRED_METRICS:
+        for backend, metric in required_metrics:
             row = index.get((backend, metric, method))
             if not row or int(row.get("valid_count", 0)) != expected:
                 reasons.append("missing full %s:%s coverage" % (backend, metric))
@@ -91,7 +135,7 @@ def select_survivors(data, plugin_states, baseline="hpwl", max_survivors=5,
         ):
             reasons.append("plugin was not active in every comparison")
 
-        if not reasons:
+        if not reasons and selection_policy == "wirelength_guarded":
             hpwl = metrics["placement:placement_hpwl"]
             gpugr_wl = metrics["gpugr:gr_wirelength"]
             if hpwl["mean_delta_pct"] > max_hpwl_mean:
@@ -104,15 +148,21 @@ def select_survivors(data, plugin_states, baseline="hpwl", max_survivors=5,
                 reasons.append("worst GPUGR wirelength guardrail")
 
         if not reasons:
-            improved = any([
-                metrics["gpugr:gr_wirelength"]["mean_delta_pct"] < 0,
-                metrics["gpugr:gr_vias"]["mean_delta_pct"] < 0,
-                metrics["gpugr:congestion_score"]["mean_delta_pct"] < 0,
-                metrics["rudy:overflow_sum"]["median_delta_pct"] < 0,
-                metrics["rudy:congestion_score"]["mean_delta_pct"] < 0,
-            ])
+            improvement_names = (
+                primary_names if selection_policy == "routability_first" else [
+                    "gpugr:gr_wirelength", "gpugr:gr_vias",
+                    "gpugr:congestion_score", "rudy:overflow_sum",
+                    "rudy:congestion_score",
+                ]
+            )
+            improved = any(
+                objective_delta(
+                    metrics[name], use_median=name == "rudy:overflow_sum"
+                ) < 0
+                for name in improvement_names
+            )
             if not improved:
-                reasons.append("no screening routability metric improved")
+                reasons.append("no primary routability metric improved")
 
         record = {
             "method": method,
@@ -123,6 +173,15 @@ def select_survivors(data, plugin_states, baseline="hpwl", max_survivors=5,
                     "mean_delta_pct": row["mean_delta_pct"],
                     "median_delta_pct": row["median_delta_pct"],
                     "worst_delta_pct": row["worst_delta_pct"],
+                    "mean_delta": row.get("mean_delta", row["mean_delta_pct"]),
+                    "median_delta": row.get(
+                        "median_delta", row["median_delta_pct"]
+                    ),
+                    "worst_delta": row.get("worst_delta", row["worst_delta_pct"]),
+                    "valid_count": row["valid_count"],
+                    "percent_valid_count": row.get(
+                        "percent_valid_count", row["valid_count"]
+                    ),
                     "case_wins": row["case_wins"],
                     "case_losses": row["case_losses"],
                 }
@@ -137,11 +196,15 @@ def select_survivors(data, plugin_states, baseline="hpwl", max_survivors=5,
         else:
             record["objectives"] = {
                 name: (
-                    metrics[name]["median_delta_pct"]
-                    if name == "rudy:overflow_sum"
-                    else metrics[name]["mean_delta_pct"]
+                    objective_delta(
+                        metrics[name], use_median=name == "rudy:overflow_sum"
+                    )
                 )
                 for name in objective_names
+            }
+            record["primary_objectives"] = {
+                name: record["objectives"][name]
+                for name in primary_names if name in record["objectives"]
             }
             qualified.append(record)
 
@@ -153,12 +216,22 @@ def select_survivors(data, plugin_states, baseline="hpwl", max_survivors=5,
             for other in qualified
         )
     ]
-    frontier.sort(key=lambda row: (
-        row["objectives"]["gpugr:gr_wirelength"],
-        row["metrics"]["gpugr:gr_wirelength"]["worst_delta_pct"],
-        row["objectives"]["placement:placement_hpwl"],
-        row["method"],
-    ))
+    if selection_policy == "routability_first":
+        frontier.sort(key=lambda row: (
+            sum(value >= 0 for value in row["primary_objectives"].values()),
+            max(row["primary_objectives"].values()),
+            row["objectives"]["gpugr:est_shorts"],
+            row["objectives"]["gpugr:num_ovfl_nets"],
+            row["objectives"]["gpugr:gr_wirelength"],
+            row["method"],
+        ))
+    else:
+        frontier.sort(key=lambda row: (
+            row["objectives"]["gpugr:gr_wirelength"],
+            row["metrics"]["gpugr:gr_wirelength"]["worst_delta_pct"],
+            row["objectives"]["placement:placement_hpwl"],
+            row["method"],
+        ))
     selected = []
     selected_atomic_plugins = set()
     for candidate in frontier:
@@ -190,13 +263,29 @@ def select_survivors(data, plugin_states, baseline="hpwl", max_survivors=5,
         "baseline": baseline,
         "expected_comparisons": expected,
         "selection_policy": {
-            "method": "hard guardrails followed by multiobjective Pareto frontier",
+            "name": selection_policy,
+            "method": (
+                "routability-first Pareto frontier with routed wirelength and vias secondary"
+                if selection_policy == "routability_first" else
+                "hard wirelength guardrails followed by multiobjective Pareto frontier"
+            ),
             "numeric_backend_mixing": False,
             "max_survivors": max_survivors,
-            "max_hpwl_mean_delta_pct": max_hpwl_mean,
-            "max_hpwl_worst_delta_pct": max_hpwl_worst,
-            "max_gpugr_wirelength_mean_delta_pct": max_gpugr_wl_mean,
-            "max_gpugr_wirelength_worst_delta_pct": max_gpugr_wl_worst,
+            "primary_objectives": primary_names if selection_policy == "routability_first" else [],
+            "secondary_objectives": (
+                ["%s:%s" % item for item in ROUTABILITY_SECONDARY_METRICS]
+                if selection_policy == "routability_first" else []
+            ),
+            "diagnostic_metrics": (
+                ["%s:%s" % item for item in ROUTABILITY_DIAGNOSTIC_METRICS]
+                if selection_policy == "routability_first" else []
+            ),
+            **({
+                "max_hpwl_mean_delta_pct": max_hpwl_mean,
+                "max_hpwl_worst_delta_pct": max_hpwl_worst,
+                "max_gpugr_wirelength_mean_delta_pct": max_gpugr_wl_mean,
+                "max_gpugr_wirelength_worst_delta_pct": max_gpugr_wl_worst,
+            } if selection_policy == "wirelength_guarded" else {}),
             "objectives": objective_names,
         },
         "qualified": qualified,
@@ -218,6 +307,11 @@ def main(argv=None):
     parser.add_argument("--combination-spec", type=Path)
     parser.add_argument("--preset-manifest", type=Path)
     parser.add_argument("--baseline", default="hpwl")
+    parser.add_argument(
+        "--selection-policy",
+        choices=("routability_first", "wirelength_guarded"),
+        default="routability_first",
+    )
     parser.add_argument("--max-survivors", type=int, default=5)
     parser.add_argument("--max-hpwl-mean-pct", type=float, default=5.0)
     parser.add_argument("--max-hpwl-worst-pct", type=float, default=10.0)
@@ -240,6 +334,7 @@ def main(argv=None):
         max_gpugr_wl_mean=args.max_gpugr_wl_mean_pct,
         max_gpugr_wl_worst=args.max_gpugr_wl_worst_pct,
         preset_provenance=preset_provenance,
+        selection_policy=args.selection_policy,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")

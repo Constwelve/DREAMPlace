@@ -1,0 +1,46 @@
+{
+  "aux_input": "",
+  "def_input": "/mnt/nvme0n1/yifan/projs/TaiWei-Pin-3D/results/nangate45/gcd/base/2_2_floorplan_io.def",
+  "density_weight": 8e-05,
+  "detailed_place_flag": 1,
+  "gamma": 4.0,
+  "global_place_flag": 1,
+  "global_place_stages": [
+    {
+      "iteration": 200,
+      "learning_rate": 0.01,
+      "num_bins_x": 512,
+      "num_bins_y": 512,
+      "optimizer": "nesterov",
+      "wirelength": "weighted_average"
+    }
+  ],
+  "gp_noise_ratio": 0.025,
+  "gpu": 1,
+  "lef_input": [
+    "/mnt/nvme0n1/yifan/projs/TaiWei-Pin-3D/platforms/nangate45/lef/NangateOpenCellLibrary.tech.lef",
+    "/mnt/nvme0n1/yifan/projs/TaiWei-Pin-3D/platforms/nangate45/lef/NangateOpenCellLibrary.macro.mod.lef"
+  ],
+  "legalize_flag": 1,
+  "num_bins_x": 512,
+  "num_bins_y": 512,
+  "num_threads": 8,
+  "plot_flag": 0,
+  "random_seed": 1000,
+  "routability_eval_cadence_mounted_root": "/mnt/nvme0n1/yifan/projs/TaiWei-Pin-3D",
+  "routability_eval_cadence_wrapper": "/home/yifan/.codex/skills/cadence-local/cadence",
+  "routability_eval_innovus_droute_end_iteration": 20,
+  "routability_eval_innovus_route_mode": "detailed",
+  "routability_eval_innovus_version": 22,
+  "routability_eval_openroad_droute_end_iteration": 20,
+  "routability_eval_openroad_route_mode": "detailed",
+  "routability_opt_flag": 0,
+  "route_num_bins_x": 512,
+  "route_num_bins_y": 512,
+  "ruplace_eval_verilog_input": "/mnt/nvme0n1/yifan/projs/TaiWei-Pin-3D/results/nangate45/gcd/base/2_2_floorplan_io.v",
+  "ruplace_eval_design_name": "gcd",
+  "ruplace_flag": 0,
+  "stop_overflow": 0.1,
+  "target_density": 1.0,
+  "verilog_input": "/mnt/nvme0n1/yifan/projs/TaiWei-Pin-3D/results/nangate45/gcd/base/2_2_floorplan_io.v"
+}
