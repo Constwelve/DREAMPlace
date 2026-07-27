@@ -20,6 +20,8 @@ WIRELENGTH_GUARDED_METRICS = (
 ROUTABILITY_PRIMARY_METRICS = (
     ("gpugr", "est_shorts"),
     ("gpugr", "num_ovfl_nets"),
+    ("gpugr", "rc_hor"),
+    ("gpugr", "rc_ver"),
     ("gpugr", "congestion_score"),
     ("rudy", "overflow_sum"),
     ("rudy", "congestion_score"),
@@ -34,7 +36,10 @@ ROUTABILITY_DIAGNOSTIC_METRICS = (("placement", "placement_hpwl"),)
 
 ROUTABILITY_BACKEND_CONSTRAINTS = {
     "gpugr": {
-        "metrics": ("est_shorts", "num_ovfl_nets", "congestion_score"),
+        "metrics": (
+            "est_shorts", "num_ovfl_nets", "rc_hor", "rc_ver",
+            "congestion_score",
+        ),
         "minimum_improvements": 2,
     },
     "rudy": {

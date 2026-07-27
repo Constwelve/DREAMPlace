@@ -28,15 +28,25 @@ def metric(backend, name, method, mean, worst=None, median=None):
 def summary():
     rows = []
     values = {
-        "good_a": (-1.0, -0.5, -1.0, -4.0, -3.0, -2.0, -3.0, -1.0),
-        "good_b": (-0.5, 0.5, -2.0, -2.0, -4.0, -1.0, -1.0, -2.0),
-        "bad_wl": (1.0, 20.0, -5.0, -8.0, -7.0, -8.0, -9.0, -4.0),
+        "good_a": (
+            -1.0, -0.5, -1.0, -4.0, -3.0, -2.0, -1.0, -2.0,
+            -3.0, -1.0,
+        ),
+        "good_b": (
+            -0.5, 0.5, -2.0, -2.0, -4.0, -1.0, -2.0, -1.0,
+            -1.0, -2.0,
+        ),
+        "bad_wl": (
+            1.0, 20.0, -5.0, -8.0, -7.0, -8.0, -7.0, -8.0,
+            -9.0, -4.0,
+        ),
     }
     for method, value in values.items():
         for (backend, name), mean in zip((
             ("placement", "placement_hpwl"), ("gpugr", "gr_wirelength"),
             ("gpugr", "gr_vias"), ("gpugr", "est_shorts"),
-            ("gpugr", "num_ovfl_nets"), ("gpugr", "congestion_score"),
+            ("gpugr", "num_ovfl_nets"), ("gpugr", "rc_hor"),
+            ("gpugr", "rc_ver"), ("gpugr", "congestion_score"),
             ("rudy", "overflow_sum"), ("rudy", "congestion_score"),
         ), value):
             rows.append(metric(backend, name, method, mean, worst=mean))
@@ -63,6 +73,12 @@ class RoutabilitySelectSurvivorsTest(unittest.TestCase):
         self.assertIn(
             "placement:placement_hpwl",
             result["selection_policy"]["diagnostic_metrics"],
+        )
+        self.assertIn(
+            "gpugr:rc_hor", result["selection_policy"]["primary_objectives"]
+        )
+        self.assertIn(
+            "gpugr:rc_ver", result["selection_policy"]["primary_objectives"]
         )
 
     def test_legacy_wirelength_guardrails_remain_reproducible(self):
@@ -103,7 +119,7 @@ class RoutabilitySelectSurvivorsTest(unittest.TestCase):
             if row["method"] == "one_metric_only"
         )
         self.assertIn(
-            "fewer than 2/3 GPUGR primary metrics improved",
+            "fewer than 2/5 GPUGR primary metrics improved",
             rejected["reasons"],
         )
         self.assertIn(

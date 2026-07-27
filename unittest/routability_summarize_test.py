@@ -43,11 +43,11 @@ class RoutabilitySummarizeTest(unittest.TestCase):
                     result("plugin", "rudy", {"overflow_sum": 8.0}),
                     result("hpwl", "gpugr", {
                         "gr_wirelength": 200.0, "est_shorts": 10.0,
-                        "num_ovfl_nets": 4,
+                        "num_ovfl_nets": 4, "rc_hor": 0.5, "rc_ver": 0.25,
                     }),
                     result("plugin", "gpugr", {
                         "gr_wirelength": 220.0, "est_shorts": 5.0,
-                        "num_ovfl_nets": 2,
+                        "num_ovfl_nets": 2, "rc_hor": 0.4, "rc_ver": 0.125,
                     }),
                 ],
             }))
@@ -70,6 +70,14 @@ class RoutabilitySummarizeTest(unittest.TestCase):
         )
         self.assertAlmostEqual(
             float(indexed[("gpugr", "est_shorts", "plugin")]["mean_delta_pct"]),
+            -50.0,
+        )
+        self.assertAlmostEqual(
+            float(indexed[("gpugr", "rc_hor", "plugin")]["mean_delta_pct"]),
+            -20.0,
+        )
+        self.assertAlmostEqual(
+            float(indexed[("gpugr", "rc_ver", "plugin")]["mean_delta_pct"]),
             -50.0,
         )
         self.assertEqual(indexed[("rudy", "overflow_sum", "plugin")]["wins"], "1")

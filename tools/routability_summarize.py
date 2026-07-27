@@ -15,7 +15,8 @@ PRIMARY_METRICS = {
     "rudy": ("overflow_sum", "congestion_score", "utilization_max"),
     "gpugr": (
         "gr_wirelength", "gr_vias", "est_shorts", "num_ovfl_nets",
-        "overflow_sum", "congestion_score", "utilization_max",
+        "rc_hor", "rc_ver", "overflow_sum", "congestion_score",
+        "utilization_max",
     ),
     "openroad": (
         "wirelength", "vias", "total_overflow", "horizontal_overflow",
