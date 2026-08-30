@@ -191,10 +191,18 @@ class RUPlaceInflation(object):
     def apply(self, pos, route, global_pass):
         util = route.utilization_map
         hv_overflow = getattr(route, "hv_overflow_map", None)
+        # Utilization threshold: bins whose utilization exceeds this fraction of capacity
+        # are treated as congested. 1.0 reproduces the legacy "only overfull bins inflate"
+        # behaviour; smaller values widen the set of cells that receive inflation.
+        util_threshold = float(getattr(self.params, "ruplace_inflate_util_threshold", 1.0))
+        if not (util_threshold > 0.0):
+            util_threshold = 1.0
         if global_pass:
             # Convex-inflation surrogate: distribute bounded area growth by
             # cluster-level route utilization while enforcing whitespace budget.
-            node_util = self._node_bin_utilization(pos, util, hv_overflow).clamp_min(1.0)
+            node_util = (
+                self._node_bin_utilization(pos, util, hv_overflow) / util_threshold
+            ).clamp_min(1.0)
             cluster_mode = str(getattr(self.params, "ruplace_global_cluster_mode", "mean")).lower()
             if cluster_mode in ("none", "off", "0", "false"):
                 cluster_util = node_util
@@ -218,13 +226,33 @@ class RUPlaceInflation(object):
         else:
             local_gamma = float(self.params.ruplace_local_inflate_gamma)
             if int(getattr(self.params, "ruplace_allow_shrink", 0)):
-                desired_ratio = self._node_bin_utilization(pos, util, hv_overflow).clamp_min(1.0)
+                desired_ratio = (
+                    self._node_bin_utilization(pos, util, hv_overflow) / util_threshold
+                ).clamp_min(1.0)
                 raw_ratio = (1.0 - local_gamma) * self.current_inflate_ratio.to(
                     pos.device, dtype=pos.dtype
                 ) + local_gamma * desired_ratio
             else:
                 overflow = route.overflow_map
-                raw_ratio = 1.0 + local_gamma * self._node_bin_utilization(pos, overflow, hv_overflow)
+                local_ratio = (
+                    1.0
+                    + local_gamma
+                    * self._node_bin_utilization(pos, overflow, hv_overflow)
+                )
+                raw_ratio = torch.maximum(
+                    self.current_inflate_ratio.to(pos.device, dtype=pos.dtype),
+                    local_ratio,
+                )
+        num_raw = max(int(raw_ratio.numel()), 1)
+        logging.info(
+            "RUPlace inflation targets (%s, util_threshold %.3f): "
+            "inflated frac %.4f, raw ratio mean/max %.4f/%.4f",
+            "global" if global_pass else "local",
+            util_threshold,
+            float((raw_ratio > 1.001).sum().item()) / num_raw,
+            float(raw_ratio.mean().item()),
+            float(raw_ratio.max().item()),
+        )
         return self.apply_node_ratios(pos, raw_ratio)
 
     def apply_node_ratios(self, pos, raw_ratio):
@@ -256,7 +284,8 @@ class RUPlaceInflation(object):
         if grow_sum.item() > 0 and max_inc.item() <= 0:
             logging.warning("RUPlace inflation skipped: no remaining whitespace budget")
             return False
-        if (grow_sum > max_inc).item():
+        budget_limited = bool((grow_sum > max_inc).item())
+        if budget_limited:
             grow_area.mul_(max_inc / grow_sum)
         final_area = old_area + grow_area + shrink_area
         final_area = torch.maximum(
@@ -277,12 +306,16 @@ class RUPlaceInflation(object):
             return False
         self._scale_movable_nodes(pos, target_cumulative_ratio)
         logging.info(
-            "RUPlace %s inflation: area increment %.4E (%.4f), ratio avg/max %.4f/%.4f",
+            "RUPlace %s inflation: area increment %.4E (%.4f), ratio avg/max %.4f/%.4f, "
+            "grow_sum/max_inc %.4E/%.4E (%s)",
             "plugin",
             (final_area - old_area).sum().item(),
             ((final_area - old_area).sum() / old_area.sum()).item(),
             target_cumulative_ratio.mean().item(),
             target_cumulative_ratio.max().item(),
+            grow_sum.item(),
+            max_inc.item(),
+            "budget-limited" if budget_limited else "ratio-limited",
         )
         return True
 

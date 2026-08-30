@@ -39,6 +39,21 @@ def zero_map_error(coverage):
     )
 
 
+def requested_routing_grid(placedb, options):
+    route_size = options.get("route_size")
+    default_x = int(placedb.num_routing_grids_x)
+    default_y = int(placedb.num_routing_grids_y)
+    num_bins_x = int(options.get(
+        "route_x_size", route_size if route_size is not None else default_x
+    ))
+    num_bins_y = int(options.get(
+        "route_y_size", route_size if route_size is not None else default_y
+    ))
+    if num_bins_x <= 0 or num_bins_y <= 0:
+        raise ValueError("RUDY routing-grid dimensions must be positive")
+    return num_bins_x, num_bins_y
+
+
 class RudyEvaluator(RoutabilityEvaluator):
     name = "rudy"
     pin_rudy = False
@@ -75,6 +90,9 @@ class RudyEvaluator(RoutabilityEvaluator):
                 pin_x, pin_y, placedb.routing_grid_xl, placedb.routing_grid_yl,
                 placedb.routing_grid_xh, placedb.routing_grid_yh,
             )
+            num_bins_x, num_bins_y = requested_routing_grid(
+                placedb, request.options
+            )
             common = dict(
                 netpin_start=torch.as_tensor(placedb.flat_net2pin_start_map, dtype=torch.int32),
                 flat_netpin=torch.as_tensor(placedb.flat_net2pin_map, dtype=torch.int32),
@@ -83,8 +101,8 @@ class RudyEvaluator(RoutabilityEvaluator):
                 yl=placedb.routing_grid_yl,
                 xh=placedb.routing_grid_xh,
                 yh=placedb.routing_grid_yh,
-                num_bins_x=placedb.num_routing_grids_x,
-                num_bins_y=placedb.num_routing_grids_y,
+                num_bins_x=num_bins_x,
+                num_bins_y=num_bins_y,
                 unit_horizontal_capacity=placedb.unit_horizontal_capacity,
                 unit_vertical_capacity=placedb.unit_vertical_capacity,
                 deterministic_flag=1,
@@ -93,6 +111,10 @@ class RudyEvaluator(RoutabilityEvaluator):
             map_path = request.artifact("rudy_map.pt")
             torch.save(utilization, map_path)
             metrics = map_statistics(utilization)
+            metrics.update({
+                "route_x_size": num_bins_x,
+                "route_y_size": num_bins_y,
+            })
             metrics.update(coverage)
             if zero_map_for_nonempty_design(utilization, placedb.num_nets):
                 return EvaluationResult(
@@ -159,6 +181,9 @@ class PinRudyEvaluator(RudyEvaluator):
                 placedb.routing_grid_xl, placedb.routing_grid_yl,
                 placedb.routing_grid_xh, placedb.routing_grid_yh,
             )
+            num_bins_x, num_bins_y = requested_routing_grid(
+                placedb, request.options
+            )
             utilization = PinRudy(
                 netpin_start=torch.as_tensor(placedb.flat_net2pin_start_map, dtype=torch.int32),
                 flat_netpin=torch.as_tensor(placedb.flat_net2pin_map, dtype=torch.int32),
@@ -167,8 +192,8 @@ class PinRudyEvaluator(RudyEvaluator):
                 yl=placedb.routing_grid_yl,
                 xh=placedb.routing_grid_xh,
                 yh=placedb.routing_grid_yh,
-                num_bins_x=placedb.num_routing_grids_x,
-                num_bins_y=placedb.num_routing_grids_y,
+                num_bins_x=num_bins_x,
+                num_bins_y=num_bins_y,
                 unit_horizontal_capacity=placedb.unit_horizontal_capacity,
                 unit_vertical_capacity=placedb.unit_vertical_capacity,
                 deterministic_flag=1,
@@ -179,6 +204,10 @@ class PinRudyEvaluator(RudyEvaluator):
             torch.save(utilization, map_path)
             metrics = map_statistics(normalized)
             metrics["raw_mean"] = float(mean.item())
+            metrics.update({
+                "route_x_size": num_bins_x,
+                "route_y_size": num_bins_y,
+            })
             metrics.update(coverage)
             if zero_map_for_nonempty_design(utilization, placedb.num_nets):
                 return EvaluationResult(

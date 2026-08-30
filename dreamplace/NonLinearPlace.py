@@ -28,6 +28,9 @@ import NesterovAcceleratedGradientOptimizer
 import EvalMetrics
 import pdb
 import dreamplace.ops.fence_region.fence_region as fence_region
+from dreamplace.ops.routability_opt.plugin_base import (
+    restore_original_node_geometry,
+)
 
 import torch_optimizer
 import ncg_optimizer
@@ -881,25 +884,13 @@ class NonLinearPlace(BasicPlace.BasicPlace):
 
             # recover node size and pin offset for legalization, since node size is adjusted in global placement
             if params.routability_opt_flag:
-                with torch.no_grad():
-                    # convert lower left to centers
-                    self.pos[0][: placedb.num_movable_nodes].add_(
-                        self.data_collections.node_size_x[: placedb.num_movable_nodes] / 2
-                    )
-                    self.pos[0][placedb.num_nodes : placedb.num_nodes + placedb.num_movable_nodes].add_(
-                        self.data_collections.node_size_y[: placedb.num_movable_nodes] / 2
-                    )
-                    self.data_collections.node_size_x.copy_(self.data_collections.original_node_size_x)
-                    self.data_collections.node_size_y.copy_(self.data_collections.original_node_size_y)
-                    # use fixed centers as the anchor
-                    self.pos[0][: placedb.num_movable_nodes].sub_(
-                        self.data_collections.node_size_x[: placedb.num_movable_nodes] / 2
-                    )
-                    self.pos[0][placedb.num_nodes : placedb.num_nodes + placedb.num_movable_nodes].sub_(
-                        self.data_collections.node_size_y[: placedb.num_movable_nodes] / 2
-                    )
-                    self.data_collections.pin_offset_x.copy_(self.data_collections.original_pin_offset_x)
-                    self.data_collections.pin_offset_y.copy_(self.data_collections.original_pin_offset_y)
+                geometry_restored = restore_original_node_geometry(
+                    self.pos[0], placedb, self.data_collections
+                )
+                logging.info(
+                    "routability geometry recovery applied: %d",
+                    int(geometry_restored),
+                )
 
         else:
             cur_metric = EvalMetrics.EvalMetrics(iteration)

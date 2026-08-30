@@ -176,6 +176,10 @@
     "description" : "maximum times to adjust node area", 
     "default" : 3
     },
+"ruplace_enforce_area_adjust_budget" : {
+    "description" : "enforce max_num_area_adjust on successful RUPlace plugin area-adjustment rounds",
+    "default" : 0
+    },
 "adjust_nctugr_area_flag" : {
     "description" : "whether use NCTUgr congestion map to guide area adjustment", 
     "default" : 0
@@ -268,6 +272,34 @@
     "description" : "GGR rip-up and reroute iterations for RUPlace route evaluations",
     "default" : 1
     },
+"ruplace_gr_util_mode" : {
+    "description" : "Congestion definition for the in-loop GR maps: legacy (dmd/cap, skip M1) or avail ((dmd-fixed)/(cap-fixed), the Innovus remain/total analogue)",
+    "default" : "legacy"
+    },
+"ruplace_gr_grid" : {
+    "description" : "GR gcell grid: bins (default, route_num_bins / DEF routing grids), def (let the router use the DEF GCELLGRID), or an explicit NxM such as 625x650",
+    "default" : "bins"
+    },
+"ruplace_write_guides" : {
+    "description" : "1 (default) = ask the router to write a route guide file each evaluation; 0 = skip it (route_guide=\"\")",
+    "default" : 1
+    },
+"ruplace_gr_wire_cost_sat" : {
+    "description" : "1 = saturate the pattern-router int64->int wire-cost difference at INF instead of letting it overflow (recovers the long nets that otherwise report `failed`); 0 = legacy",
+    "default" : 0
+    },
+"ruplace_gr_via_usage_scale" : {
+    "description" : "GGR via-usage scale factor (grSetting.viaUsageScale); 1.5 = the ISPD18-calibrated value, 0 disables the extra via demand",
+    "default" : 1.5
+    },
+"ruplace_gr_m1_routable" : {
+    "description" : "1 = let GGR route on M1 (grSetting.m1Routable); 0 = treat M1 as unroutable (the SMIC14 setting)",
+    "default" : 1
+    },
+"ruplace_gr_max_route_len_per_pin" : {
+    "description" : "GGR maxRouteLenPerPin, the per-pin route-length budget in gcells; 130 = ISPD18 calibration, 256 for the coarser s14 grid",
+    "default" : 130
+    },
 "ruplace_route_gpu" : {
     "description" : "CUDA device id used by the Xplace GPU-router adapter",
     "default" : 0
@@ -307,6 +339,10 @@
 "ruplace_inflate_area_cap" : {
     "description" : "maximum movable-area growth fraction per RUPlace inflation round",
     "default" : 0.01
+    },
+"ruplace_inflate_util_threshold" : {
+    "description" : "route utilization fraction treated as congested by RUPlace inflation; node utilization is divided by this before clamping at 1.0, so 1.0 is legacy behaviour and smaller values inflate cells in less-congested bins",
+    "default" : 1.0
     },
 "ruplace_inflate_extra_capacity" : {
     "description" : "extra movable-area budget allowed for RUPlace inflation when filler whitespace is unavailable",
@@ -368,6 +404,14 @@
     "description" : "weight for RUPlace routed-wire ADMM gradient",
     "default" : 1.0
     },
+"ruplace_admm_scale_mode" : {
+    "description" : "routeforce scaling: absolute uses the raw ADMM coefficient; relative interprets the weight as a fraction of raw placement-gradient RMS",
+    "default" : "absolute"
+    },
+"ruplace_admm_max_ratio" : {
+    "description" : "maximum routeforce-to-placement gradient RMS ratio in relative scaling mode",
+    "default" : 0.25
+    },
 "ruplace_admm_weight_decay" : {
     "description" : "multiplicative decay applied to RUPlace ADMM gradient weight after each application",
     "default" : 1.0
@@ -416,6 +460,66 @@
     "description" : "density overflow threshold at which gradient-based routability plugins become active",
     "default" : 1.0
     },
+"ruplace_force_scale_mode" : {
+    "description" : "force scaling for gradient plugins including local_gradient, directional_path_spreading, net_overlap, poisson_force, and whitespace: absolute preserves legacy coefficients; relative interprets each plugin weight as a fraction of raw placement-gradient RMS",
+    "default" : "absolute"
+    },
+"ruplace_force_max_ratio" : {
+    "description" : "maximum per-plugin raw placement-gradient RMS ratio in relative force-scaling mode",
+    "default" : 0.25
+    },
+"ruplace_force_congestion_mode" : {
+    "description" : "force congestion map: aggregate overflow; utilization; overflow-directional hv_max, hv_mean, horizontal, or vertical; or absolute-directional utilization_hv_max, utilization_hv_mean, utilization_horizontal, or utilization_vertical",
+    "default" : "aggregate"
+    },
+"ruplace_force_smoothing_padding" : {
+    "description" : "force-map smoothing boundary mode: zero preserves legacy behavior; replicate avoids artificial constant-map boundary gradients",
+    "default" : "zero"
+    },
+"ruplace_force_physical_bins" : {
+    "description" : "use physical routing-bin dimensions for net-overlap and whitespace map gradients; false preserves legacy index-space behavior",
+    "default" : false
+    },
+"ruplace_force_apply_interval" : {
+    "description" : "placement iterations between local-gradient, net-overlap, Poisson, and whitespace force applications",
+    "default" : 1
+    },
+"ruplace_force_apply_offset" : {
+    "description" : "application phase offset in [0, apply_interval) for gradient-based routability forces",
+    "default" : 0
+    },
+"ruplace_force_max_applications" : {
+    "description" : "maximum successful applications per gradient-based routability force; -1 is unlimited",
+    "default" : -1
+    },
+"ruplace_force_decay" : {
+    "description" : "multiplicative force-weight decay per successful application; plugin-specific ruplace_<plugin>_decay parameters override it",
+    "default" : 1.0
+    },
+"ruplace_force_min_ratio" : {
+    "description" : "minimum annealed force-weight ratio relative to the configured plugin weight",
+    "default" : 0.0
+    },
+"ruplace_force_stagnation_window" : {
+    "description" : "distinct proxy observations required before a local-gradient force activates; 1 disables trend gating",
+    "default" : 1
+    },
+"ruplace_force_stagnation_tolerance" : {
+    "description" : "maximum fractional proxy-overflow improvement still classified as stagnant across the force gate window",
+    "default" : 0.0
+    },
+"ruplace_force_min_overflow_sum" : {
+    "description" : "minimum selected-map overflow sum required by an enabled local-gradient stagnation gate",
+    "default" : 0.0
+    },
+"ruplace_force_min_overflow_bins" : {
+    "description" : "minimum positive selected-map overflow-bin count required by an enabled local-gradient stagnation gate",
+    "default" : 0
+    },
+"ruplace_force_gate_utilization_threshold" : {
+    "description" : "utilization threshold subtracted before severity and stagnation gating of utilization-map feedback",
+    "default" : 1.0
+    },
 "ruplace_momentum_rounds" : {
     "description" : "maximum momentum-inflation rounds",
     "default" : 8
@@ -444,6 +548,158 @@
     "description" : "smoothing radius for the local congestion-gradient map",
     "default" : 1
     },
+"ruplace_aggregate_cvar_gradient_weight" : {
+    "description" : "node-level aggregate utilization-tail CVaR congestion-gradient weight",
+    "default" : 0.05
+    },
+"ruplace_aggregate_cvar_gradient_smooth" : {
+    "description" : "smoothing radius for the aggregate CVaR pressure map",
+    "default" : 1
+    },
+"ruplace_aggregate_cvar_gradient_quantile" : {
+    "description" : "aggregate utilization quantile defining the CVaR tail",
+    "default" : 0.99
+    },
+"ruplace_aggregate_cvar_gradient_tail_blend" : {
+    "description" : "blend from aggregate overflow pressure at zero to aggregate utilization-tail excess at one",
+    "default" : 0.5
+    },
+"ruplace_aggregate_pnorm_gradient_weight" : {
+    "description" : "node-level aggregate Lp overflow-gradient weight",
+    "default" : 0.05
+    },
+"ruplace_aggregate_pnorm_gradient_smooth" : {
+    "description" : "smoothing radius for the aggregate Lp overflow-pressure map",
+    "default" : 1
+    },
+"ruplace_aggregate_pnorm_gradient_exponent" : {
+    "description" : "Lp exponent applied to aggregate utilization above capacity",
+    "default" : 2.0
+    },
+"ruplace_aggregate_pnorm_gradient_threshold" : {
+    "description" : "aggregate utilization threshold for the Lp pressure objective",
+    "default" : 1.0
+    },
+"ruplace_directional_local_gradient_weight" : {
+    "description" : "node-level cross-track H/V congestion-gradient weight",
+    "default" : 0.05
+    },
+"ruplace_directional_local_gradient_smooth" : {
+    "description" : "smoothing radius for separate H/V local-gradient maps",
+    "default" : 1
+    },
+"ruplace_directional_local_gradient_feedback" : {
+    "description" : "directional local-gradient feedback maps: overflow or utilization",
+    "default" : "overflow"
+    },
+"ruplace_directional_local_gradient_mode" : {
+    "description" : "cross-track response for both directions, horizontal routes only, or vertical routes only: both, horizontal, or vertical",
+    "default" : "both"
+    },
+"ruplace_directional_local_gradient_axis_balance" : {
+    "description" : "positive X/Y balance for directional local-gradient response; values above 1 emphasize X displacement",
+    "default" : 1.0
+    },
+"ruplace_directional_local_gradient_axis_mapping" : {
+    "description" : "route-direction to displacement-axis mapping: cross_track or matching_axis",
+    "default" : "cross_track"
+    },
+"ruplace_directional_local_gradient_polarity" : {
+    "description" : "directional pressure response: repel or attract",
+    "default" : "repel"
+    },
+"ruplace_directional_local_gradient_normalization" : {
+    "description" : "directional field normalization: joint or per_axis",
+    "default" : "joint"
+    },
+"ruplace_directional_local_gradient_aggregate_blend" : {
+    "description" : "fraction of aggregate congestion-map gradient blended into the directional H/V field",
+    "default" : 0.0
+    },
+"ruplace_directional_local_gradient_tail_guard" : {
+    "description" : "enable a monotonic H/V utilization-tail trust gate for directional local-gradient force applications",
+    "default" : 0
+    },
+"ruplace_directional_local_gradient_tail_metric" : {
+    "description" : "directional local-gradient tail guard metric: max, p99, or max_p99",
+    "default" : "max_p99"
+    },
+"ruplace_directional_local_gradient_tail_tolerance" : {
+    "description" : "maximum fractional increase over the best observed guarded H/V utilization tail",
+    "default" : 0.0
+    },
+"ruplace_directional_cvar_gradient_weight" : {
+    "description" : "node-level directional CVaR congestion-gradient weight",
+    "default" : 0.05
+    },
+"ruplace_directional_cvar_gradient_smooth" : {
+    "description" : "smoothing radius for separate H/V CVaR pressure maps",
+    "default" : 1
+    },
+"ruplace_directional_cvar_gradient_quantile" : {
+    "description" : "per-direction utilization quantile defining the CVaR tail",
+    "default" : 0.99
+    },
+"ruplace_directional_cvar_gradient_tail_blend" : {
+    "description" : "blend from routed overflow pressure at zero to utilization-tail excess at one",
+    "default" : 0.5
+    },
+"ruplace_directional_cvar_gradient_mode" : {
+    "description" : "CVaR response for both directions, horizontal routes only, or vertical routes only: both, horizontal, or vertical",
+    "default" : "both"
+    },
+"ruplace_directional_cvar_gradient_axis_balance" : {
+    "description" : "positive X/Y balance for directional CVaR response; values above 1 emphasize X displacement",
+    "default" : 1.0
+    },
+"ruplace_directional_cvar_gradient_axis_mapping" : {
+    "description" : "CVaR route-direction to displacement-axis mapping: cross_track or matching_axis",
+    "default" : "matching_axis"
+    },
+"ruplace_directional_cvar_gradient_polarity" : {
+    "description" : "directional CVaR pressure response: repel or attract",
+    "default" : "repel"
+    },
+"ruplace_directional_cvar_gradient_normalization" : {
+    "description" : "directional CVaR field normalization: joint or per_axis",
+    "default" : "joint"
+    },
+"ruplace_directional_excess_cvar_gradient_weight" : {
+    "description" : "node-level capacity-conditioned directional CVaR congestion-gradient weight",
+    "default" : 0.05
+    },
+"ruplace_directional_excess_cvar_gradient_smooth" : {
+    "description" : "smoothing radius for capacity-conditioned H/V CVaR pressure maps",
+    "default" : 1
+    },
+"ruplace_directional_excess_cvar_gradient_quantile" : {
+    "description" : "per-direction quantile among utilization-above-one bins defining the conditioned CVaR tail",
+    "default" : 0.95
+    },
+"ruplace_directional_excess_cvar_gradient_tail_blend" : {
+    "description" : "blend from routed overflow pressure at zero to capacity-conditioned utilization-tail excess at one",
+    "default" : 0.5
+    },
+"ruplace_directional_excess_cvar_gradient_mode" : {
+    "description" : "capacity-conditioned CVaR response for both directions, horizontal routes only, or vertical routes only: both, horizontal, or vertical",
+    "default" : "both"
+    },
+"ruplace_directional_excess_cvar_gradient_axis_balance" : {
+    "description" : "positive X/Y balance for capacity-conditioned directional CVaR response; values above 1 emphasize X displacement",
+    "default" : 1.0
+    },
+"ruplace_directional_excess_cvar_gradient_axis_mapping" : {
+    "description" : "capacity-conditioned CVaR route-direction to displacement-axis mapping: cross_track or matching_axis",
+    "default" : "matching_axis"
+    },
+"ruplace_directional_excess_cvar_gradient_polarity" : {
+    "description" : "capacity-conditioned directional CVaR pressure response: repel or attract",
+    "default" : "repel"
+    },
+"ruplace_directional_excess_cvar_gradient_normalization" : {
+    "description" : "capacity-conditioned directional CVaR field normalization: joint or per_axis",
+    "default" : "joint"
+    },
 "ruplace_poisson_weight" : {
     "description" : "global Poisson/Coulomb congestion-force weight",
     "default" : 0.05
@@ -451,6 +707,18 @@
 "ruplace_poisson_smooth" : {
     "description" : "smoothing radius for the Poisson congestion charge map",
     "default" : 1
+    },
+"ruplace_poisson_solver" : {
+    "description" : "Poisson congestion-field boundary solver: periodic preserves the historical FFT implementation; neumann_dct uses DREAMPlace's zero-flux DCT field",
+    "default" : "periodic"
+    },
+"ruplace_poisson_directional_mode" : {
+    "description" : "Poisson congestion-field response: scalar solves one selected congestion map; cross_track separately solves H/V utilization and applies V pressure on X and H pressure on Y",
+    "default" : "scalar"
+    },
+"ruplace_poisson_axis_balance" : {
+    "description" : "positive X/Y balance for scalar or cross-track Poisson response; values above 1 emphasize X displacement and values below 1 emphasize Y displacement",
+    "default" : 1.0
     },
 "ruplace_net_weight_freq" : {
     "description" : "placement iterations between congestion-aware net-weight updates",
@@ -460,9 +728,361 @@
     "description" : "congestion-aware net-weight scaling strength",
     "default" : 0.25
     },
+"ruplace_net_weight_decay" : {
+    "description" : "multiplicative gamma decay after each effective congestion-aware net-weight update",
+    "default" : 1.0
+    },
+"ruplace_net_weight_min_ratio" : {
+    "description" : "minimum annealed gamma ratio relative to ruplace_net_weight_gamma",
+    "default" : 0.0
+    },
 "ruplace_net_weight_max" : {
     "description" : "maximum multiplier for congestion-aware net weights",
     "default" : 3.0
+    },
+"ruplace_net_weight_normalization" : {
+    "description" : "net congestion score normalization: absolute or design_mean",
+    "default" : "absolute"
+    },
+"ruplace_net_weight_phase" : {
+    "description" : "net-weight update phase: post_gradient queues weights for the next objective after current-gradient preconditioning; pre_objective updates weights before wirelength objective construction",
+    "default" : "post_gradient"
+    },
+"ruplace_net_weight_score_mode" : {
+    "description" : "net congestion aggregation: pin_mean samples pin bins; bbox_mean averages each net bounding box; bbox_pmean uses a peak-sensitive bounding-box power mean",
+    "default" : "pin_mean"
+    },
+"ruplace_net_weight_bbox_power" : {
+    "description" : "positive exponent for peak-sensitive bbox_pmean net congestion scoring",
+    "default" : 4.0
+    },
+"ruplace_net_weight_direction_mode" : {
+    "description" : "net-weight congestion map: aggregate, max_hv, mean_hv, horizontal, or vertical; directional modes require an H/V-capable proxy",
+    "default" : "aggregate"
+    },
+"ruplace_net_weight_smooth" : {
+    "description" : "nonnegative box-smoothing radius applied to the selected net-weight congestion map",
+    "default" : 0
+    },
+"ruplace_net_relaxation_freq" : {
+    "description" : "placement iterations between congestion-aware net-relaxation updates",
+    "default" : 20
+    },
+"ruplace_net_relaxation_gamma" : {
+    "description" : "strength for reducing wirelength pressure on congested nets",
+    "default" : 0.25
+    },
+"ruplace_net_relaxation_decay" : {
+    "description" : "multiplicative gamma decay after each effective congestion-aware net-relaxation update",
+    "default" : 1.0
+    },
+"ruplace_net_relaxation_min_ratio" : {
+    "description" : "minimum annealed gamma ratio relative to ruplace_net_relaxation_gamma",
+    "default" : 0.0
+    },
+"ruplace_net_relaxation_min_weight" : {
+    "description" : "minimum objective-weight multiplier for a congested active net",
+    "default" : 0.5
+    },
+"ruplace_net_relaxation_normalization" : {
+    "description" : "net-relaxation congestion score normalization: absolute or design_mean",
+    "default" : "absolute"
+    },
+"ruplace_net_relaxation_phase" : {
+    "description" : "net-relaxation update phase: post_gradient or pre_objective",
+    "default" : "post_gradient"
+    },
+"ruplace_net_relaxation_score_mode" : {
+    "description" : "net-relaxation congestion aggregation: pin_mean, bbox_mean, or bbox_pmean",
+    "default" : "pin_mean"
+    },
+"ruplace_net_relaxation_bbox_power" : {
+    "description" : "positive exponent for peak-sensitive bbox_pmean net-relaxation scoring",
+    "default" : 4.0
+    },
+"ruplace_net_relaxation_direction_mode" : {
+    "description" : "net-relaxation congestion map: aggregate, max_hv, mean_hv, horizontal, or vertical",
+    "default" : "aggregate"
+    },
+"ruplace_net_relaxation_smooth" : {
+    "description" : "nonnegative box-smoothing radius applied to the selected net-relaxation congestion map",
+    "default" : 0
+    },
+"ruplace_directional_net_contraction_weight" : {
+    "description" : "direction-specific congested-net span-contraction force weight",
+    "default" : 0.01
+    },
+"ruplace_directional_net_contraction_apply_interval" : {
+    "description" : "placement iterations between directional net-contraction applications",
+    "default" : 10
+    },
+"ruplace_directional_net_contraction_decay" : {
+    "description" : "multiplicative directional net-contraction force decay per application",
+    "default" : 0.9
+    },
+"ruplace_directional_net_contraction_min_ratio" : {
+    "description" : "minimum directional net-contraction force ratio after annealing",
+    "default" : 0.1
+    },
+"ruplace_directional_net_contraction_mode" : {
+    "description" : "contract both spans, the more congested H/V span, only horizontal spans, or only vertical spans: both, max_hv, horizontal, or vertical",
+    "default" : "max_hv"
+    },
+"ruplace_directional_net_contraction_smooth" : {
+    "description" : "nonnegative box-smoothing radius for H/V contraction feedback maps",
+    "default" : 1
+    },
+"ruplace_directional_net_contraction_score_mode" : {
+    "description" : "directional net congestion aggregation: pin_mean, bbox_mean, or bbox_pmean",
+    "default" : "bbox_pmean"
+    },
+"ruplace_directional_net_contraction_bbox_power" : {
+    "description" : "positive exponent for directional bbox_pmean congestion scoring",
+    "default" : 4.0
+    },
+"ruplace_directional_net_contraction_normalization" : {
+    "description" : "directional net-contraction congestion normalization: absolute, shared design_mean, or independent axis_mean",
+    "default" : "design_mean"
+    },
+"ruplace_directional_net_contraction_max_pressure" : {
+    "description" : "maximum normalized per-axis net-contraction pressure",
+    "default" : 2.0
+    },
+"ruplace_directional_path_spreading_weight" : {
+    "description" : "direction-aware net-neighborhood spreading force weight",
+    "default" : 0.0025
+    },
+"ruplace_directional_path_spreading_apply_interval" : {
+    "description" : "placement iterations between directional route-path spreading applications",
+    "default" : 20
+    },
+"ruplace_directional_path_spreading_decay" : {
+    "description" : "multiplicative directional route-path spreading force decay per application",
+    "default" : 0.8
+    },
+"ruplace_directional_path_spreading_min_ratio" : {
+    "description" : "minimum directional route-path spreading force ratio after annealing",
+    "default" : 0.2
+    },
+"ruplace_directional_path_spreading_mode" : {
+    "description" : "spread both route directions, only horizontal routes across y, or only vertical routes across x: both, horizontal, or vertical",
+    "default" : "both"
+    },
+"ruplace_directional_path_spreading_smooth" : {
+    "description" : "nonnegative smoothing radius for directional route-path pressure maps",
+    "default" : 1
+    },
+"ruplace_directional_path_spreading_threshold" : {
+    "description" : "absolute H/V utilization threshold for directional route-path pressure",
+    "default" : 0.8
+    },
+"ruplace_directional_path_spreading_power" : {
+    "description" : "positive exponent applied to directional route-path pressure above threshold",
+    "default" : 2.0
+    },
+"ruplace_connection_routeforce_weight" : {
+    "description" : "weight for Xplace connection-level routed-segment overflow gradient",
+    "default" : 0.0025
+    },
+"ruplace_connection_routeforce_apply_interval" : {
+    "description" : "placement iterations between connection routeforce applications",
+    "default" : 20
+    },
+"ruplace_connection_routeforce_route_freq" : {
+    "description" : "placement iterations between connection routeforce global-route refreshes",
+    "default" : 100
+    },
+"ruplace_connection_routeforce_decay" : {
+    "description" : "multiplicative connection routeforce weight decay per application",
+    "default" : 0.8
+    },
+"ruplace_connection_routeforce_min_ratio" : {
+    "description" : "minimum connection routeforce weight ratio after annealing",
+    "default" : 0.2
+    },
+"ruplace_connection_routeforce_scale_mode" : {
+    "description" : "connection routeforce scaling: absolute or relative to placement-gradient RMS",
+    "default" : "relative"
+    },
+"ruplace_connection_routeforce_max_ratio" : {
+    "description" : "maximum connection routeforce to placement-gradient RMS ratio",
+    "default" : 0.05
+    },
+"ruplace_connection_routeforce_overflow_threshold" : {
+    "description" : "minimum aggregate routed overflow for an edge bin to drive connection routeforce",
+    "default" : 0.0
+    },
+"ruplace_connection_routeforce_max_wire_span" : {
+    "description" : "maximum routed segment span in global-routing bins that receives connection routeforce",
+    "default" : 19
+    },
+"ruplace_connection_routeforce_distance_weighting" : {
+    "description" : "distance weighting along routed segments: uniform or inverse_sqrt",
+    "default" : "uniform"
+    },
+"ruplace_connection_routeforce_field_mode" : {
+    "description" : "connection routeforce congestion field: aggregate, max_hv, directional_hv, directional_hv_pressure, directional_hv_pressure_via, directional_hv_pressure_via_short, or max_layer",
+    "default" : "aggregate"
+    },
+"ruplace_connection_routeforce_utilization_threshold" : {
+    "description" : "directional utilization floor subtracted by directional_hv_pressure before force construction",
+    "default" : 1.0
+    },
+"ruplace_connection_routeforce_pressure_exponent" : {
+    "description" : "positive exponent applied to directional utilization pressure; 1 preserves the linear field and values above 1 focus force on peak H/V utilization",
+    "default" : 1.0
+    },
+"ruplace_connection_routeforce_via_utilization_threshold" : {
+    "description" : "aggregate via-demand/capacity floor subtracted by directional_hv_pressure_via before force construction",
+    "default" : 0.0
+    },
+"ruplace_connection_routeforce_dilation_radius" : {
+    "description" : "nonnegative global-routing-bin radius for max dilation of directional_hv_pressure",
+    "default" : 0
+    },
+"ruplace_connection_routeforce_x_scale" : {
+    "description" : "nonnegative scale for x-motion, which provides cross-track feedback for vertical routes",
+    "default" : 1.0
+    },
+"ruplace_connection_routeforce_y_scale" : {
+    "description" : "nonnegative scale for y-motion, which provides cross-track feedback for horizontal routes",
+    "default" : 1.0
+    },
+"ruplace_connection_routeforce_wire_cost" : {
+    "description" : "wire-demand cost multiplier in connection routeforce",
+    "default" : 1.0
+    },
+"ruplace_connection_routeforce_via_cost" : {
+    "description" : "via-pressure weight for directional_hv_pressure_via and directional_hv_pressure_via_short; reserved by the native Xplace interface for other modes",
+    "default" : 1.0
+    },
+"ruplace_multisegment_connection_routeforce_reduction" : {
+    "description" : "same-axis routed-branch reduction for multisegment_connection_routeforce: sum, mean, or blend",
+    "default" : "sum"
+    },
+"ruplace_multisegment_connection_routeforce_blend" : {
+    "description" : "blend coefficient in [0, 1] between exact last-branch and summed-branch gradients when multisegment reduction is blend",
+    "default" : 0.5
+    },
+"ruplace_projected_connection_routeforce_mode" : {
+    "description" : "placement-gradient projection for projected_connection_routeforce: global_nonopposing, node_nonopposing, global_orthogonal, or node_orthogonal",
+    "default" : "node_nonopposing"
+    },
+"ruplace_projected_connection_routeforce_epsilon" : {
+    "description" : "nonnegative squared-reference-norm floor used by projected_connection_routeforce",
+    "default" : 1e-12
+    },
+"ruplace_projected_connection_routeforce_strength" : {
+    "description" : "fraction in [0, 1] of the selected parallel route-gradient component removed by projected_connection_routeforce",
+    "default" : 1.0
+    },
+"ruplace_projected_connection_routeforce_strength_x" : {
+    "description" : "optional X-axis projection fraction in [0, 1]; null inherits ruplace_projected_connection_routeforce_strength",
+    "default" : null
+    },
+"ruplace_projected_connection_routeforce_strength_y" : {
+    "description" : "optional Y-axis projection fraction in [0, 1]; null inherits ruplace_projected_connection_routeforce_strength",
+    "default" : null
+    },
+"ruplace_routed_overflow_net_contraction_weight" : {
+    "description" : "directional routed-overflow segment-contraction force weight",
+    "default" : 0.0025
+    },
+"ruplace_routed_overflow_net_contraction_apply_interval" : {
+    "description" : "placement iterations between routed-overflow contraction applications",
+    "default" : 80
+    },
+"ruplace_routed_overflow_net_contraction_apply_offset" : {
+    "description" : "routed-overflow contraction application phase offset in [0, apply_interval)",
+    "default" : 0
+    },
+"ruplace_routed_overflow_net_contraction_max_applications" : {
+    "description" : "maximum successful routed-overflow contraction applications; -1 is unlimited",
+    "default" : -1
+    },
+"ruplace_routed_overflow_net_contraction_route_freq" : {
+    "description" : "placement iterations between routed-overflow contraction route refreshes",
+    "default" : 80
+    },
+"ruplace_routed_overflow_net_contraction_decay" : {
+    "description" : "multiplicative routed-overflow contraction force decay per application",
+    "default" : 0.2
+    },
+"ruplace_routed_overflow_net_contraction_min_ratio" : {
+    "description" : "minimum routed-overflow contraction force ratio after annealing",
+    "default" : 0.2
+    },
+"ruplace_routed_overflow_net_contraction_scale_mode" : {
+    "description" : "routed-overflow contraction scaling: absolute or relative to placement-gradient RMS",
+    "default" : "relative"
+    },
+"ruplace_routed_overflow_net_contraction_max_ratio" : {
+    "description" : "maximum routed-overflow contraction to placement-gradient RMS ratio",
+    "default" : 0.05
+    },
+"ruplace_routed_overflow_net_contraction_mode" : {
+    "description" : "routed-overflow contraction map: aggregate or directional H/V",
+    "default" : "directional"
+    },
+"ruplace_routed_overflow_net_contraction_threshold" : {
+    "description" : "nonnegative routed overflow removed before segment contraction",
+    "default" : 0.0
+    },
+"ruplace_routed_overflow_net_contraction_exponent" : {
+    "description" : "positive exponent applied to routed overflow before segment contraction",
+    "default" : 1.0
+    },
+"ruplace_routed_overflow_net_contraction_max_wire_span" : {
+    "description" : "maximum routed segment span in global-routing bins contracted by routed overflow",
+    "default" : 19
+    },
+"ruplace_routed_overflow_net_contraction_distance_weighting" : {
+    "description" : "distance weighting along contracted routed segments: uniform or inverse_sqrt",
+    "default" : "uniform"
+    },
+"ruplace_routed_overflow_net_contraction_matching_scale" : {
+    "description" : "nonnegative scale of matching-axis routed contraction before orthogonal spreading; zero enables pure cross-axis relief",
+    "default" : 1.0
+    },
+"ruplace_routed_overflow_net_contraction_orthogonal_spread_scale" : {
+    "description" : "nonnegative scale for reversing cross-direction routed-gradient response into orthogonal hotspot spreading",
+    "default" : 0.0
+    },
+"ruplace_routed_overflow_net_contraction_smoothing_radius" : {
+    "description" : "nonnegative box-smoothing radius applied to routed-overflow feedback maps; zero preserves the unsmoothed formulation",
+    "default" : 0
+    },
+"ruplace_routed_overflow_net_contraction_smoothing_padding" : {
+    "description" : "routed-overflow smoothing boundary mode: replicate avoids artificial boundary attenuation; zero uses zero padding",
+    "default" : "replicate"
+    },
+"ruplace_routed_overflow_net_contraction_utilization_pressure_scale" : {
+    "description" : "nonnegative scale for adding near-capacity utilization pressure to routed-overflow contraction; zero preserves overflow-only feedback",
+    "default" : 0.0
+    },
+"ruplace_routed_overflow_net_contraction_utilization_threshold" : {
+    "description" : "nonnegative H/V utilization threshold for routed contraction pressure",
+    "default" : 1.0
+    },
+"ruplace_routed_overflow_net_contraction_utilization_exponent" : {
+    "description" : "positive exponent applied to routed-contraction utilization pressure",
+    "default" : 1.0
+    },
+"ruplace_routed_overflow_net_contraction_projection_mode" : {
+    "description" : "placement-gradient projection: none, global_nonopposing, node_nonopposing, global_orthogonal, or node_orthogonal",
+    "default" : "none"
+    },
+"ruplace_routed_overflow_net_contraction_projection_strength" : {
+    "description" : "fraction in [0,1] of selected placement-gradient-parallel contraction removed",
+    "default" : 0.0
+    },
+"ruplace_routed_overflow_net_contraction_x_scale" : {
+    "description" : "nonnegative contraction scale for horizontal routed segments along x",
+    "default" : 1.0
+    },
+"ruplace_routed_overflow_net_contraction_y_scale" : {
+    "description" : "nonnegative contraction scale for vertical routed segments along y",
+    "default" : 1.0
     },
 "ruplace_net_overlap_weight" : {
     "description" : "net-overlap removal gradient weight",
@@ -471,6 +1091,70 @@
 "ruplace_net_overlap_smooth" : {
     "description" : "smoothing radius for net-overlap removal",
     "default" : 2
+    },
+"ruplace_virtual_cell_weight" : {
+    "description" : "relative or absolute midpoint force weight for virtual cells on two-pin nets",
+    "default" : 0.0025
+    },
+"ruplace_virtual_cell_apply_interval" : {
+    "description" : "placement iterations between virtual-cell net-moving applications",
+    "default" : 20
+    },
+"ruplace_virtual_cell_decay" : {
+    "description" : "multiplicative virtual-cell force decay per application",
+    "default" : 0.8
+    },
+"ruplace_virtual_cell_min_ratio" : {
+    "description" : "minimum virtual-cell force ratio after annealing",
+    "default" : 0.2
+    },
+"ruplace_virtual_cell_threshold" : {
+    "description" : "absolute utilization threshold for virtual-cell congestion charge",
+    "default" : 0.8
+    },
+"ruplace_virtual_cell_power" : {
+    "description" : "positive exponent applied to virtual-cell congestion charge above threshold",
+    "default" : 2.0
+    },
+"ruplace_virtual_cell_smooth" : {
+    "description" : "nonnegative smoothing radius for virtual-cell congestion charge",
+    "default" : 2
+    },
+"ruplace_directional_virtual_cell_weight" : {
+    "description" : "relative or absolute cross-track midpoint force weight for directional virtual cells",
+    "default" : 0.0025
+    },
+"ruplace_directional_virtual_cell_apply_interval" : {
+    "description" : "placement iterations between directional virtual-cell applications",
+    "default" : 20
+    },
+"ruplace_directional_virtual_cell_decay" : {
+    "description" : "multiplicative directional virtual-cell force decay per application",
+    "default" : 0.8
+    },
+"ruplace_directional_virtual_cell_min_ratio" : {
+    "description" : "minimum directional virtual-cell force ratio after annealing",
+    "default" : 0.2
+    },
+"ruplace_directional_virtual_cell_threshold" : {
+    "description" : "absolute H/V utilization threshold for directional virtual-cell charge",
+    "default" : 0.8
+    },
+"ruplace_directional_virtual_cell_power" : {
+    "description" : "positive exponent applied to directional virtual-cell charge above threshold",
+    "default" : 2.0
+    },
+"ruplace_directional_virtual_cell_smooth" : {
+    "description" : "nonnegative smoothing radius for directional virtual-cell charge",
+    "default" : 2
+    },
+"ruplace_directional_virtual_cell_reduction" : {
+    "description" : "mean or sum reduction for virtual-net forces incident on a movable cell",
+    "default" : "sum"
+    },
+"ruplace_directional_virtual_cell_axis_balance" : {
+    "description" : "positive cross-track x/y balance; values above one prioritize vertical-route relief",
+    "default" : 1.0
     },
 "ruplace_pin_porosity_rounds" : {
     "description" : "maximum pin-density and macro-porosity padding rounds",

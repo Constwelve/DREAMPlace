@@ -1,25 +1,47 @@
 """Low-frequency whitespace-allocation force for congested regions."""
 
 from dreamplace.ops.routability_opt.plugin_base import RoutabilityPlugin, map_gradient
-from dreamplace.ops.routability_opt.plugins.utils import normalize_field, smooth_map
+from dreamplace.ops.routability_opt.plugins.utils import (
+    force_map_options,
+    normalize_field,
+    routing_bin_sizes,
+    select_congestion_map,
+    smooth_map,
+)
 
 
 class WhitespaceAllocationPlugin(RoutabilityPlugin):
     name = "whitespace"
 
     def apply_gradient(self, pos, model, context):
+        weight = float(getattr(self.params, "ruplace_whitespace_weight", 0.03))
+        weight, schedule_metrics = self.scheduled_force_weight(context, weight)
+        if weight is None:
+            self.metrics = schedule_metrics
+            return False
         signal = context.signal(pos)
         radius = int(getattr(self.params, "ruplace_whitespace_radius", 5))
-        regional_congestion = smooth_map(signal.overflow_map, radius)
-        gx, gy = normalize_field(*map_gradient(regional_congestion))
+        map_mode, padding_mode, physical_bins = force_map_options(self.params)
+        regional_congestion = smooth_map(
+            select_congestion_map(signal, map_mode), radius, padding_mode
+        )
+        bx, by = routing_bin_sizes(self.placedb, regional_congestion.shape)
+        if not physical_bins:
+            bx = by = 1.0
+        gx, gy = normalize_field(*map_gradient(regional_congestion, bx, by))
         node_gx, node_gy = context.sample_vector_field(pos, gx, gy)
-        weight = float(getattr(self.params, "ruplace_whitespace_weight", 0.03))
         field_norm = (gx.square() + gy.square()).sum().sqrt()
-        changed = weight != 0.0 and bool(field_norm > 0)
+        force_metrics = context.add_scaled_movable_gradient(
+            pos, node_gx, node_gy, weight
+        )
+        changed = force_metrics["applied_scale"] != 0.0 and bool(field_norm > 0)
         if changed:
-            context.add_movable_gradient(pos, node_gx, node_gy, weight)
+            self.record_force_application()
+        schedule_metrics["force_applications"] = self.force_applications
         self.metrics = {
             "regional_peak": float(regional_congestion.max().item()),
             "field_norm": float(field_norm.item()),
+            **schedule_metrics,
+            **force_metrics,
         }
         return changed

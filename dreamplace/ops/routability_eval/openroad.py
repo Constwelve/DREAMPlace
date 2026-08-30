@@ -65,6 +65,44 @@ def parse_openroad_congestion_report(text):
     return metrics
 
 
+def parse_openroad_detailed_route_metrics(text, raw_metrics=None):
+    """Extract final connectivity and short metrics from TritonRoute output."""
+    metrics = {}
+    raw_metrics = raw_metrics or {}
+
+    total_matches = re.findall(
+        r"Number of nets:\s*([0-9]+)", text, re.IGNORECASE
+    )
+    routed_nets = raw_metrics.get("route__net")
+    if total_matches and isinstance(routed_nets, (int, float)):
+        metrics["unrouted_nets"] = float(max(
+            int(total_matches[-1]) - int(routed_nets), 0
+        ))
+
+    summaries = re.findall(
+        r"\[INFO DRT-0199\]\s+Number of violations\s*=\s*([0-9]+)\.\s*"
+        r"(.*?)(?=\[INFO DRT-0267\])",
+        text,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if summaries:
+        violation_count, summary = summaries[-1]
+        metrics["drc_violations"] = float(violation_count)
+        short_row = re.search(
+            r"^\s*Short\s+((?:[0-9]+\s*)+)$",
+            summary,
+            re.IGNORECASE | re.MULTILINE,
+        )
+        metrics["short_violations"] = float(
+            sum(int(value) for value in short_row.group(1).split())
+            if short_row else 0
+        )
+    elif raw_metrics.get("route__drc_errors") == 0:
+        metrics["drc_violations"] = 0.0
+        metrics["short_violations"] = 0.0
+    return metrics
+
+
 class OpenROADEvaluator(RoutabilityEvaluator):
     name = "openroad"
 
@@ -78,6 +116,7 @@ class OpenROADEvaluator(RoutabilityEvaluator):
             )
         guide = request.artifact("openroad.guide")
         congestion = request.artifact("openroad_congestion.rpt")
+        congestion_raw = request.artifact("openroad_congestion.raw.rpt")
         metrics_json = request.artifact("openroad_metrics.json")
         wire_report = request.artifact("openroad_wirelength.rpt")
         script = request.artifact("openroad_eval.tcl")
@@ -86,7 +125,12 @@ class OpenROADEvaluator(RoutabilityEvaluator):
         lines.extend([
             "read_def %s" % tcl_quote(Path(request.def_input).resolve()),
             "global_route -allow_congestion -guide_file %s -congestion_report_file %s" %
-            (tcl_quote(guide), tcl_quote(congestion)),
+            (tcl_quote(guide), tcl_quote(congestion_raw)),
+            "if {[file exists %s]} { file copy -force %s %s } else { "
+            "close [open %s w] }" % (
+                tcl_quote(congestion_raw), tcl_quote(congestion_raw),
+                tcl_quote(congestion), tcl_quote(congestion),
+            ),
             "report_wire_length -global_route -summary -file %s" % tcl_quote(wire_report),
         ])
         if route_mode == "detailed":
@@ -116,7 +160,8 @@ class OpenROADEvaluator(RoutabilityEvaluator):
         metrics = parse_openroad_log(
             output + "\n" + report_text + "\n" + congestion_text + "\n" + drc_text
         )
-        metrics.update(parse_openroad_congestion_report(congestion_text))
+        if congestion.exists():
+            metrics.update(parse_openroad_congestion_report(congestion_text))
         if metrics_json.exists():
             try:
                 raw = json.loads(metrics_json.read_text())
@@ -140,6 +185,9 @@ class OpenROADEvaluator(RoutabilityEvaluator):
                             metrics[target] = raw[source]
             except json.JSONDecodeError:
                 pass
+        metrics.update(parse_openroad_detailed_route_metrics(
+            output, metrics.get("openroad_metrics")
+        ))
         artifacts = {
             "guide": guide, "congestion": congestion, "metrics": metrics_json,
             "wirelength": wire_report, "script": script,
@@ -153,10 +201,14 @@ class OpenROADEvaluator(RoutabilityEvaluator):
         missing_directional = route_mode == "detailed" and not all(
             key in metrics for key in ("horizontal_overflow", "vertical_overflow")
         )
+        missing_connectivity = route_mode == "detailed" and not all(
+            key in metrics for key in ("unrouted_nets", "short_violations")
+        )
         if (
             float(metrics.get("wirelength", 0.0)) <= 0.0
             or missing_drc
             or missing_directional
+            or missing_connectivity
         ):
             return EvaluationResult(
                 backend=self.name,
@@ -170,6 +222,8 @@ class OpenROADEvaluator(RoutabilityEvaluator):
                     if missing_drc else
                     "OpenROAD detailed routing completed without directional congestion"
                     if missing_directional else
+                    "OpenROAD detailed routing completed without connectivity metrics"
+                    if missing_connectivity else
                     "OpenROAD completed without positive routed wirelength"
                 ),
             )

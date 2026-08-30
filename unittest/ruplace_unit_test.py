@@ -122,6 +122,99 @@ class RUPlaceInflationTest(unittest.TestCase):
         self.assertGreater(data.node_size_x[0].item(), data.node_size_x[1].item())
         self.assertLessEqual((data.node_size_x * data.node_size_y).sum().item(), inflation.total_place_area.item() + 1e-6)
 
+    def _threshold_fixture(self, util_threshold, gamma=0.35, exponent=1.0, bin_util=0.8):
+        """Two 1x1 movable cells, one filler, in bins whose utilization is `bin_util`."""
+        params = Obj()
+        params.ruplace_max_inflate_ratio = 2.0
+        params.ruplace_min_inflate_ratio = 1.0
+        params.ruplace_local_inflate_gamma = 0.2
+        params.ruplace_global_cluster_mode = "none"
+        params.ruplace_global_util_exponent = exponent
+        params.ruplace_global_inflate_gamma = gamma
+        params.ruplace_inflate_area_cap = 0.1
+        params.ruplace_hv_inflate_gamma = 0.0
+        params.ruplace_node_util_window = 0
+        params.ruplace_inflate_util_threshold = util_threshold
+
+        placedb = Obj()
+        placedb.num_nodes = 3
+        placedb.num_movable_nodes = 2
+        placedb.num_filler_nodes = 1
+        placedb.routing_grid_xl = 0.0
+        placedb.routing_grid_yl = 0.0
+        placedb.routing_grid_xh = 4.0
+        placedb.routing_grid_yh = 2.0
+        placedb.row_height = 1.0
+        placedb.node_names = [b"same/u1", b"same/u2", b"filler"]
+
+        data = Obj()
+        data.node_size_x = torch.tensor([1.0, 1.0, 2.0])
+        data.node_size_y = torch.tensor([1.0, 1.0, 1.0])
+        data.pin_offset_x = torch.tensor([0.0, 0.0])
+        data.pin_offset_y = torch.tensor([0.0, 0.0])
+        data.flat_node2pin_start_map = torch.tensor([0, 1, 2, 2], dtype=torch.long)
+        data.flat_node2pin_map = torch.tensor([0, 1], dtype=torch.long)
+        data.target_density = torch.tensor([1.0])
+        data.node_areas = data.node_size_x * data.node_size_y
+
+        route = Obj()
+        # No bin is over capacity: legacy inflation (threshold 1.0) must be a no-op.
+        route.utilization_map = torch.full((2, 2), float(bin_util))
+        route.overflow_map = torch.clamp(route.utilization_map - 1.0, min=0.0)
+        route.metrics = {}
+
+        pos = torch.tensor([0.0, 2.0, 1.0, 0.0, 0.0, 0.0])
+        return params, placedb, data, route, pos
+
+    def test_inflate_util_threshold_default_leaves_underfull_bins_untouched(self):
+        params, placedb, data, route, pos = self._threshold_fixture(1.0)
+        before_x = data.node_size_x.clone()
+        before_y = data.node_size_y.clone()
+        inflation = RUPlaceInflation(params, placedb, data)
+        self.assertFalse(inflation.apply(pos, route, global_pass=True))
+        self.assertTrue(torch.allclose(data.node_size_x, before_x))
+        self.assertTrue(torch.allclose(data.node_size_y, before_y))
+        self.assertTrue(
+            torch.allclose(inflation.current_inflate_ratio, torch.ones(2), atol=1e-6)
+        )
+
+    def test_inflate_util_threshold_inflates_cells_below_capacity(self):
+        gamma, exponent, bin_util, thr = 0.35, 1.0, 0.8, 0.7
+        params, placedb, data, route, pos = self._threshold_fixture(
+            thr, gamma=gamma, exponent=exponent, bin_util=bin_util
+        )
+        inflation = RUPlaceInflation(params, placedb, data)
+        self.assertTrue(inflation.apply(pos, route, global_pass=True))
+        expected = 1.0 + gamma * ((bin_util / thr) - 1.0) ** exponent
+        self.assertAlmostEqual(
+            inflation.current_inflate_ratio[0].item(), expected, places=5
+        )
+        self.assertAlmostEqual(
+            inflation.current_inflate_ratio[1].item(), expected, places=5
+        )
+        # areas scale by the ratio, edges by its square root
+        self.assertAlmostEqual(
+            data.node_size_x[0].item(), expected ** 0.5, places=5
+        )
+        self.assertLessEqual(
+            (data.node_size_x * data.node_size_y).sum().item(),
+            inflation.total_place_area.item() + 1e-6,
+        )
+
+    def test_inflate_util_threshold_applies_to_local_shrink_path(self):
+        thr = 0.7
+        params, placedb, data, route, pos = self._threshold_fixture(thr)
+        params.ruplace_allow_shrink = 1
+        params.ruplace_local_inflate_gamma = 1.0
+        # room for the full 0.8/0.7 target so the budget does not clip the ratio
+        params.ruplace_inflate_area_cap = 0.2
+        inflation = RUPlaceInflation(params, placedb, data)
+        self.assertTrue(inflation.apply(pos, route, global_pass=False))
+        # local allow_shrink path targets the (util / thr) ratio directly
+        self.assertAlmostEqual(
+            inflation.current_inflate_ratio[0].item(), 0.8 / thr, places=5
+        )
+
     def test_global_inflation_is_uniform_within_hierarchy_cluster(self):
         params = Obj()
         params.ruplace_max_inflate_ratio = 2.0

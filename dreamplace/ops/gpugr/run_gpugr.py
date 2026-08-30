@@ -26,6 +26,20 @@ def main(argv=None):
     parser.add_argument("--rrr-iters", type=int, default=1)
     parser.add_argument("--gpu", type=int, default=0)
     parser.add_argument("--num-threads", type=int, default=8)
+    parser.add_argument("--dump-maps", default="", help="gpugr/xplace backends: torch.save raw per-layer GR maps here")
+    # ---- RUPlace s14 fidelity knobs (defaults = legacy GPUGR behavior) ----
+    # Both spellings are accepted because the calibration harness forwards
+    # `--gr-param key=value` verbatim as `--key value`.
+    parser.add_argument("--max_route_len_per_pin", "--max-route-len-per-pin",
+                        dest="max_route_len_per_pin", type=int, default=130)
+    parser.add_argument("--m1_routable", "--m1-routable",
+                        dest="m1_routable", type=int, default=1)
+    parser.add_argument("--via_usage_scale", "--via-usage-scale",
+                        dest="via_usage_scale", type=float, default=1.5)
+    parser.add_argument("--wire_cost_sat", "--wire-cost-sat",
+                        dest="wire_cost_sat", type=int, default=0)
+    parser.add_argument("--util_mode", "--util-mode", dest="util_mode",
+                        choices=["legacy", "avail"], default="legacy")
     args = parser.parse_args(argv)
     if args.backend in ("gpugr", "xplace"):
         from dreamplace.ops.gpugr.xplace_backend import _external_eval_main
@@ -60,7 +74,19 @@ def main(argv=None):
             str(args.num_threads),
             "--output",
             str(output),
+            "--max-route-len-per-pin",
+            str(args.max_route_len_per_pin),
+            "--m1-routable",
+            str(args.m1_routable),
+            "--via-usage-scale",
+            str(args.via_usage_scale),
+            "--wire-cost-sat",
+            str(args.wire_cost_sat),
+            "--util-mode",
+            str(args.util_mode),
         ]
+        if args.dump_maps:
+            cli.extend(["--dump-maps", args.dump_maps])
         for lef in args.lef_input:
             cli.extend(["--lef-input", lef])
         if args.verilog_input:

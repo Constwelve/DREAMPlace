@@ -39,6 +39,7 @@ class GPUGRProxy(CachedProxy):
                 utilization_map=route.utilization_map,
                 overflow_map=route.overflow_map,
                 hv_overflow_map=getattr(route, "hv_overflow_map", None),
+                hv_utilization_map=getattr(route, "hv_utilization_map", None),
                 metrics=dict(getattr(route, "metrics", {})),
                 source="gpugr",
                 native=route,
@@ -63,6 +64,54 @@ class MapOpProxy(CachedProxy):
                 pin_utilization_map=pin_map,
                 source=self.name,
                 metrics={"mean_utilization": float(utilization.mean().item())},
+            )
+            self.last_iteration = iteration
+        return self.last_signal
+
+
+class RudyProxy(CachedProxy):
+    """RUDY feedback evaluated with immutable input net weights."""
+
+    def __init__(self, params, placedb, data_collections, op_collections,
+                 refresh_interval=1, rudy_factory=None):
+        super().__init__(refresh_interval)
+        if rudy_factory is None:
+            from dreamplace.ops.rudy.rudy import Rudy
+            rudy_factory = Rudy
+
+        self.input_net_weights = data_collections.net_weights.detach().clone()
+        self.pin_pos_op = op_collections.pin_pos_op
+        self.op = rudy_factory(
+            netpin_start=data_collections.flat_net2pin_start_map,
+            flat_netpin=data_collections.flat_net2pin_map,
+            net_weights=self.input_net_weights,
+            xl=placedb.routing_grid_xl,
+            yl=placedb.routing_grid_yl,
+            xh=placedb.routing_grid_xh,
+            yh=placedb.routing_grid_yh,
+            num_bins_x=placedb.num_routing_grids_x,
+            num_bins_y=placedb.num_routing_grids_y,
+            unit_horizontal_capacity=placedb.unit_horizontal_capacity,
+            unit_vertical_capacity=placedb.unit_vertical_capacity,
+            initial_horizontal_utilization_map=(
+                data_collections.initial_horizontal_utilization_map
+            ),
+            initial_vertical_utilization_map=(
+                data_collections.initial_vertical_utilization_map
+            ),
+            deterministic_flag=params.deterministic_flag,
+        )
+
+    def evaluate(self, pos, iteration, refresh=False):
+        if self.should_refresh(iteration, refresh):
+            utilization = self.op(self.pin_pos_op(pos))
+            self.last_signal = CongestionSignal(
+                utilization_map=utilization,
+                source="rudy",
+                metrics={
+                    "mean_utilization": float(utilization.mean().item()),
+                    "frozen_input_net_weights": True,
+                },
             )
             self.last_iteration = iteration
         return self.last_signal
@@ -103,9 +152,8 @@ def build_congestion_proxy(params, placedb, data_collections, op_collections):
     if name in ("gpugr", "xplace"):
         return GPUGRProxy(params, placedb, data_collections)
     if name == "rudy":
-        return MapOpProxy(
-            "rudy", op_collections.route_utilization_map_op, refresh,
-            op_collections.pin_utilization_map_op,
+        return RudyProxy(
+            params, placedb, data_collections, op_collections, refresh,
         )
     if name in ("pin", "pin_density"):
         return MapOpProxy("pin_density", op_collections.pin_utilization_map_op, refresh)
@@ -116,7 +164,9 @@ def build_congestion_proxy(params, placedb, data_collections, op_collections):
     if name in ("rudy_pin", "rudy+pin"):
         return CompositeProxy(
             [
-                MapOpProxy("rudy", op_collections.route_utilization_map_op, refresh),
+                RudyProxy(
+                    params, placedb, data_collections, op_collections, refresh,
+                ),
                 MapOpProxy("pin_density", op_collections.pin_utilization_map_op, refresh),
             ],
             [

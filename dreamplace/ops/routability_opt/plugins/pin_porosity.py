@@ -3,7 +3,10 @@
 import torch
 
 from dreamplace.ops.routability_opt.plugin_base import RoutabilityPlugin
-from dreamplace.ops.routability_opt.plugins.utils import smooth_map
+from dreamplace.ops.routability_opt.plugins.utils import (
+    rectangle_overlap_map,
+    smooth_map,
+)
 from dreamplace.ops.routability_opt.ruplace_op import RUPlaceInflation
 
 
@@ -33,13 +36,21 @@ class PinDensityPorosityPlugin(RoutabilityPlugin):
         if not macro.any():
             return result
         n = self.placedb.num_nodes
-        x = pos[first:last][macro] + self.data_collections.node_size_x[first:last][macro] * 0.5
-        y = pos[n + first:n + last][macro] + self.data_collections.node_size_y[first:last][macro] * 0.5
-        bx = ((x - self.placedb.routing_grid_xl) * nx /
-              (self.placedb.routing_grid_xh - self.placedb.routing_grid_xl)).long().clamp(0, nx - 1)
-        by = ((y - self.placedb.routing_grid_yl) * ny /
-              (self.placedb.routing_grid_yh - self.placedb.routing_grid_yl)).long().clamp(0, ny - 1)
-        result.index_put_((bx, by), area[macro], accumulate=True)
+        width = self.data_collections.node_size_x[first:last][macro]
+        height = self.data_collections.node_size_y[first:last][macro]
+        xl = pos[first:last][macro]
+        yl = pos[n + first:n + last][macro]
+        result = rectangle_overlap_map(
+            xl, yl, xl + width, yl + height, shape,
+            (
+                self.placedb.routing_grid_xl,
+                self.placedb.routing_grid_yl,
+                self.placedb.routing_grid_xh,
+                self.placedb.routing_grid_yh,
+            ),
+            dtype=pos.dtype,
+            device=pos.device,
+        )
         result = smooth_map(result, int(getattr(self.params, "ruplace_porosity_radius", 3)))
         return result / result[result > 0].mean().clamp_min(1e-12) if (result > 0).any() else result
 

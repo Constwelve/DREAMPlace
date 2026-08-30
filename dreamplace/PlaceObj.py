@@ -407,6 +407,12 @@ class PlaceObj(nn.Module):
         #self.check_gradient(pos)
         if pos.grad is not None:
             pos.grad.zero_()
+        if getattr(self.params, "ruplace_flag", 0) and self.op_collections.routability_opt_op is not None:
+            prepare_objective = getattr(
+                self.op_collections.routability_opt_op, "prepare_objective", None
+            )
+            if prepare_objective is not None:
+                prepare_objective(pos, self)
         obj = self.obj_fn(pos)
 
         if obj.requires_grad:
@@ -416,6 +422,13 @@ class PlaceObj(nn.Module):
             self.op_collections.routability_opt_op.apply_gradient(pos, self)
 
         self.op_collections.precondition_op(pos.grad, self.density_weight, self.update_mask, self.fix_nodes_mask)
+
+        if getattr(self.params, "ruplace_flag", 0) and self.op_collections.routability_opt_op is not None:
+            commit_post_gradient = getattr(
+                self.op_collections.routability_opt_op, "commit_post_gradient", None
+            )
+            if commit_post_gradient is not None:
+                commit_post_gradient(pos, self)
 
         return obj, pos.grad
 
