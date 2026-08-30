@@ -1,0 +1,16 @@
+VERSION 5.8 ;
+BUSBITCHARS "[]" ;
+DIVIDERCHAR "/" ;
+
+# The s14 floorplan DEFs declare their core rows with SITE "core7T", a name that
+# does not appear in any shipped s14 LEF. Its geometry is identical to the
+# scc14nsfp library's 90s9t_CoreSite (0.090 x 0.576 um, matching the DEF ROW
+# "STEP 90" / 576-unit row pitch), so this alias only satisfies DREAMPlace's
+# add_def_row() site lookup; it introduces no new geometry.
+SITE core7T
+    CLASS   CORE ;
+    SYMMETRY X Y ;
+    SIZE 0.090 BY 0.576 ;
+END core7T
+
+END LIBRARY

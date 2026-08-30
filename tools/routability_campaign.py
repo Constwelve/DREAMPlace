@@ -19,6 +19,13 @@ def as_list(value):
     return value if isinstance(value, list) else [value]
 
 
+def baseline_first_methods(value, baseline="hpwl"):
+    methods = [item.strip() for item in value.split(",") if item.strip()]
+    if baseline not in methods:
+        return ",".join(methods)
+    return ",".join([baseline] + [item for item in methods if item != baseline])
+
+
 def parse_path_maps(values):
     mappings = []
     for value in values or []:
@@ -109,9 +116,11 @@ def main(argv=None):
     parser.add_argument("--timeout-sec", type=int, default=0)
     parser.add_argument("--include-disabled", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--resume", action="store_true")
     parser.add_argument("--random-seed", type=int)
     parser.add_argument("--path-map", action="append", default=[])
     args = parser.parse_args(argv)
+    args.methods = baseline_first_methods(args.methods)
 
     selected = {name.strip() for name in args.cases.split(",") if name.strip()}
     path_maps = parse_path_maps(args.path_map)
@@ -178,6 +187,8 @@ def main(argv=None):
             "--dreamplace-entry", str(args.dreamplace_entry),
             "--num-threads", str(args.num_threads), "--continue-on-error",
         ]
+        if args.resume:
+            command.append("--resume")
         if args.timeout_sec:
             command.extend(["--timeout-sec", str(args.timeout_sec)])
         status = "planned" if args.dry_run else "completed"

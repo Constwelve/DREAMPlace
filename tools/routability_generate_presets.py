@@ -9,6 +9,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PRESETS = ROOT / "configs/routability_plugins/presets.json"
+IN_PROCESS_ROUTE_PLUGINS = {
+    "routeforce", "connection_routeforce", "projected_connection_routeforce",
+    "routed_overflow_net_contraction",
+}
 
 
 def as_list(value, name):
@@ -100,7 +104,10 @@ def generate_presets(base_presets, spec, max_presets=256):
                     selected_grid[key] = values
             points = grid_points(selected_grid)
             for proxy in proxies:
-                if "routeforce" in selected and proxy not in ("gpugr", "xplace"):
+                if (
+                    set(selected) & IN_PROCESS_ROUTE_PLUGINS
+                    and proxy not in ("gpugr", "xplace")
+                ):
                     continue
                 for point in points:
                     name = "%s_%04d_%s_%s" % (
@@ -119,6 +126,7 @@ def generate_presets(base_presets, spec, max_presets=256):
                         "plugins": list(selected),
                         "proxy": proxy,
                         "grid": point,
+                        "development_only": True,
                     }
                     index += 1
                     if index > max_presets:
@@ -149,6 +157,12 @@ def main(argv=None):
     manifest_path.write_text(json.dumps({
         "base_presets": str(args.base_presets.resolve()),
         "spec": str(args.spec.resolve()),
+        "metadata": {
+            "development_only": True,
+            "heldout_or_golden_evidence_used": False,
+            "numeric_backend_mixing": False,
+            "generated_count": len(manifest),
+        },
         "generated": manifest,
     }, indent=2, sort_keys=True) + "\n")
     return 0

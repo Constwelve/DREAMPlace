@@ -16,7 +16,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tools.routability_campaign import load_cases, parse_path_maps
+from tools.routability_campaign import (
+    baseline_first_methods,
+    load_cases,
+    parse_path_maps,
+)
 
 
 def utc_now():
@@ -91,6 +95,8 @@ def build_command(args, case_name, seed, result_dir):
         command.extend(["--path-map", mapping])
     if args.timeout_sec:
         command.extend(["--timeout-sec", str(args.timeout_sec)])
+    if args.resume:
+        command.append("--resume")
     return command
 
 
@@ -112,7 +118,9 @@ def main(argv=None):
     parser.add_argument("--num-threads", type=int, default=8)
     parser.add_argument("--timeout-sec", type=int, default=0)
     parser.add_argument("--path-map", action="append", default=[])
+    parser.add_argument("--resume", action="store_true")
     args = parser.parse_args(argv)
+    args.methods = baseline_first_methods(args.methods)
 
     selected = {item.strip() for item in args.cases.split(",") if item.strip()}
     path_maps = parse_path_maps(args.path_map)

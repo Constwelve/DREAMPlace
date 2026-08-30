@@ -11,7 +11,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from tools.routability_parallel import main
+from tools.routability_parallel import baseline_first_methods, main
 
 
 class ImmediateProcess:
@@ -23,6 +23,16 @@ class ImmediateProcess:
 
 
 class RoutabilityParallelTest(unittest.TestCase):
+    def test_hpwl_baseline_is_scheduled_first_without_changing_method_set(self):
+        self.assertEqual(
+            baseline_first_methods("candidate_a,hpwl,candidate_b"),
+            "hpwl,candidate_a,candidate_b",
+        )
+        self.assertEqual(
+            baseline_first_methods("candidate_a,candidate_b"),
+            "candidate_a,candidate_b",
+        )
+
     def test_parallel_runner_assigns_gpu_and_seed(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -51,9 +61,10 @@ class RoutabilityParallelTest(unittest.TestCase):
                     "--manifest", str(manifest), "--template", str(template),
                     "--presets", str(presets),
                     "--cases", "tiny", "--seeds", "7", "--gpus", "3",
-                    "--methods", "hpwl", "--evaluators", "rudy",
+                    "--methods", "candidate,hpwl", "--evaluators", "rudy",
                     "--output-dir", str(output),
                     "--dreamplace-entry", str(placer),
+                    "--resume",
                 ])
 
             report = json.loads((output / "parallel_status.json").read_text())
@@ -64,6 +75,10 @@ class RoutabilityParallelTest(unittest.TestCase):
         command = popen.call_args.args[0]
         self.assertEqual(command[command.index("--random-seed") + 1], "7")
         self.assertEqual(command[command.index("--presets") + 1], str(presets))
+        self.assertEqual(
+            command[command.index("--methods") + 1], "hpwl,candidate"
+        )
+        self.assertIn("--resume", command)
 
 
 if __name__ == "__main__":

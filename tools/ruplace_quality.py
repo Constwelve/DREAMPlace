@@ -157,6 +157,38 @@ def parse_args():
         help="Optional bundled GPUGR root for --ruplace-router-backend=gpugr.",
     )
     parser.add_argument("--stop-overflow", type=float, default=0.15)
+    parser.add_argument(
+        "--node-area-adjust-overflow",
+        type=float,
+        default=0.15,
+        help=(
+            "DREAMPlace node_area_adjust_overflow for the dp_rudy method: RUDY/pin "
+            "area adjustment rounds run only while the density overflow is above this "
+            "value. The DREAMPlace default (0.15) equals the default --stop-overflow, "
+            "so on designs that stop right at the threshold dp_rudy performs a single "
+            "adjustment round whose inflation is never exploited. Raise it (e.g. 0.25) "
+            "to start adjusting earlier."
+        ),
+    )
+    parser.add_argument(
+        "--max-num-area-adjust",
+        type=int,
+        default=3,
+        help=(
+            "DREAMPlace max_num_area_adjust for the dp_rudy method: maximum number "
+            "of RUDY/pin area adjustment rounds. 3 is the legacy hard-coded value."
+        ),
+    )
+    parser.add_argument(
+        "--legalize-flag",
+        type=int,
+        default=0,
+        help=(
+            "DREAMPlace legalize_flag for every DREAMPlace method (dp_hpwl/dp_rudy/ruplace*). "
+            "0 = legacy GP-only DEF; 1 = run legalization before the solution DEF is written. "
+            "abacus_legalize_flag is left at its params.json default."
+        ),
+    )
     parser.add_argument("--route-rrr-iters", type=int, default=1)
     parser.add_argument(
         "--eval-route-rrr-iters",
@@ -191,6 +223,15 @@ def parse_args():
     )
     parser.add_argument("--ruplace-local-inflate-gamma", type=float, default=0.15)
     parser.add_argument("--ruplace-inflate-area-cap", type=float, default=0.01)
+    parser.add_argument(
+        "--ruplace-inflate-util-threshold",
+        type=float,
+        default=1.0,
+        help=(
+            "Route utilization fraction treated as congested by RUPlace inflation. "
+            "Node utilization is divided by this before clamping at 1.0; 1.0 is legacy."
+        ),
+    )
     parser.add_argument("--ruplace-inflate-extra-capacity", type=float, default=0.0)
     parser.add_argument("--ruplace-congested-uniform-inflate-ratio", type=float, default=1.0)
     parser.add_argument(
@@ -212,6 +253,55 @@ def parse_args():
         choices=[0, 1],
         default=0,
         help="Allow local adjustment to shrink over-inflated cells toward original size.",
+    )
+    # ---- RUPlace batch 2 (A1/A2/A3): GR map + grid knobs.  Defaults = legacy behavior. ----
+    parser.add_argument(
+        "--ruplace-gr-util-mode",
+        choices=["legacy", "avail"],
+        default="legacy",
+        help="Congestion definition for the RUPlace GR maps: legacy (dmd/cap) or avail "
+             "((dmd-fixed)/(cap-fixed)).  Also forwarded to the DEF eval path.",
+    )
+    parser.add_argument(
+        "--ruplace-gr-grid",
+        default="bins",
+        help="GR gcell grid for RUPlace methods: 'bins' (default), 'def' (use the DEF "
+             "GCELLGRID) or an explicit 'NxM' such as 625x650.  'def'/'NxM' are also "
+             "honoured by the DEF eval path.",
+    )
+    parser.add_argument(
+        "--ruplace-write-guides",
+        type=int,
+        choices=[0, 1],
+        default=1,
+        help="1 (default) = the router writes a route guide file each evaluation; 0 = skip it.",
+    )
+    parser.add_argument(
+        "--ruplace-gr-wire-cost-sat",
+        type=int,
+        choices=[0, 1],
+        default=0,
+        help="1 = saturate the pattern-router int64->int wire-cost difference at INF instead "
+             "of letting it overflow (recovers long nets that otherwise report `failed`).",
+    )
+    parser.add_argument(
+        "--ruplace-gr-via-usage-scale",
+        type=float,
+        default=1.5,
+        help="GGR viaUsageScale for RUPlace methods (1.5 = ISPD18 calibration, 0 = no extra via demand).",
+    )
+    parser.add_argument(
+        "--ruplace-gr-m1-routable",
+        type=int,
+        choices=[0, 1],
+        default=1,
+        help="1 = GGR may route on M1; 0 = M1 unroutable (the SMIC14 setting).",
+    )
+    parser.add_argument(
+        "--ruplace-gr-max-route-len-per-pin",
+        type=int,
+        default=130,
+        help="GGR maxRouteLenPerPin in gcells (130 = ISPD18 calibration, 256 for the coarse s14 grid).",
     )
     parser.add_argument("--ruplace-local-ovfl-nets-stop", type=float, default=0.0)
     parser.add_argument("--ruplace-local-est-shorts-stop", type=float, default=0.0)
@@ -296,6 +386,14 @@ def parse_eval_args(argv):
     parser.add_argument("--_eval-num-threads", type=int, default=8)
     parser.add_argument("--_eval-num-bins", type=int, default=512)
     parser.add_argument("--_eval-route-rrr-iters", type=int, default=1)
+    # RUPlace batch 2: A1/A2 knobs.  Defaults reproduce the legacy eval path exactly.
+    parser.add_argument("--_eval-util-mode", dest="_eval_util_mode",
+                        choices=["legacy", "avail"], default="legacy")
+    parser.add_argument("--_eval-gr-grid", dest="_eval_gr_grid", default="")
+    # When set, the bundled GPUGR root is used instead of --_eval-xplace-root for
+    # the native extensions, the flute tables and the IOParser.  Empty keeps the
+    # legacy external-Xplace behaviour byte for byte.
+    parser.add_argument("--_eval-gpugr-root", dest="_eval_gpugr_root", default="")
     return parser.parse_args(argv)
 
 
@@ -616,7 +714,7 @@ def build_dreamplace_config(args, design, method, result_dir):
         "enable_fillers": 1,
         "gp_noise_ratio": getattr(args, "gp_noise_ratio", 0.025),
         "global_place_flag": 1,
-        "legalize_flag": 0,
+        "legalize_flag": int(getattr(args, "legalize_flag", 0)),
         "detailed_place_flag": 0,
         "stop_overflow": args.stop_overflow,
         "dtype": "float32",
@@ -640,8 +738,10 @@ def build_dreamplace_config(args, design, method, result_dir):
                 "adjust_nctugr_area_flag": 0,
                 "adjust_rudy_area_flag": 1,
                 "adjust_pin_area_flag": 1,
-                "max_num_area_adjust": 3,
-                "node_area_adjust_overflow": 0.15,
+                "max_num_area_adjust": int(getattr(args, "max_num_area_adjust", 3)),
+                "node_area_adjust_overflow": float(
+                    getattr(args, "node_area_adjust_overflow", 0.15)
+                ),
                 "route_num_bins_x": args.num_bins,
                 "route_num_bins_y": args.num_bins,
             }
@@ -660,6 +760,15 @@ def build_dreamplace_config(args, design, method, result_dir):
                 "ruplace_router_backend": getattr(args, "ruplace_router_backend", "xplace"),
                 "ruplace_route_gpu": getattr(args, "gpu", 0),
                 "ruplace_gr_rrr_iters": args.route_rrr_iters,
+                "ruplace_gr_util_mode": getattr(args, "ruplace_gr_util_mode", "legacy"),
+                "ruplace_gr_grid": getattr(args, "ruplace_gr_grid", "bins"),
+                "ruplace_write_guides": int(getattr(args, "ruplace_write_guides", 1)),
+                "ruplace_gr_wire_cost_sat": int(getattr(args, "ruplace_gr_wire_cost_sat", 0)),
+                "ruplace_gr_via_usage_scale": float(getattr(args, "ruplace_gr_via_usage_scale", 1.5)),
+                "ruplace_gr_m1_routable": int(getattr(args, "ruplace_gr_m1_routable", 1)),
+                "ruplace_gr_max_route_len_per_pin": int(
+                    getattr(args, "ruplace_gr_max_route_len_per_pin", 130)
+                ),
                 "ruplace_external_route_eval": external_route_eval,
                 "ruplace_inflate_start_overflow": args.ruplace_inflate_start_overflow,
                 "ruplace_max_inflate_ratio": args.ruplace_max_inflate_ratio,
@@ -669,6 +778,9 @@ def build_dreamplace_config(args, design, method, result_dir):
                 "ruplace_global_util_exponent": getattr(args, "ruplace_global_util_exponent", 1.0),
                 "ruplace_local_inflate_gamma": args.ruplace_local_inflate_gamma,
                 "ruplace_inflate_area_cap": args.ruplace_inflate_area_cap,
+                "ruplace_inflate_util_threshold": getattr(
+                    args, "ruplace_inflate_util_threshold", 1.0
+                ),
                 "ruplace_inflate_extra_capacity": args.ruplace_inflate_extra_capacity,
                 "ruplace_congested_uniform_inflate_ratio": args.ruplace_congested_uniform_inflate_ratio,
                 "ruplace_hv_inflate_gamma": getattr(args, "ruplace_hv_inflate_gamma", 0.0),
@@ -742,12 +854,24 @@ def dreamplace_env():
 
 
 def find_dreamplace_def(result_dir, design):
+    # DREAMPlace (Placer.py) writes exactly one solution DEF, <design>.gp.def, *after*
+    # NonLinearPlace has already run legalization, so with legalize_flag=1 the legalized
+    # placement lands in that same .gp.def. Some flows emit an explicit .lg.def; prefer it
+    # when present, fall back to .gp.def, and log which suffix was picked.
     expected_design_name = "%s.input" % design
-    expected = result_dir / expected_design_name / ("%s.gp.def" % expected_design_name)
-    if expected.exists():
-        return expected
-    matches = sorted(result_dir.glob("**/*.gp.def"), key=lambda p: p.stat().st_mtime, reverse=True)
-    return matches[0] if matches else None
+    for suffix in ("lg", "gp"):
+        expected = result_dir / expected_design_name / ("%s.%s.def" % (expected_design_name, suffix))
+        if expected.exists():
+            print("[def-select] %s.def (expected path): %s" % (suffix, expected))
+            return expected
+    for suffix in ("lg", "gp"):
+        matches = sorted(
+            result_dir.glob("**/*.%s.def" % suffix), key=lambda p: p.stat().st_mtime, reverse=True
+        )
+        if matches:
+            print("[def-select] %s.def (glob): %s" % (suffix, matches[0]))
+            return matches[0]
+    return None
 
 
 def parse_xplace_metrics(log_path):
@@ -879,13 +1003,16 @@ def run_command_capture(cmd, cwd, log_path, env=None, dry_run=False, timeout_sec
             return 124, elapsed
 
 
-def parse_xplace_exp_dir(log_path):
+def parse_xplace_exp_dir(log_path, xplace_root=None):
     text = Path(log_path).read_text(errors="ignore") if Path(log_path).exists() else ""
     match = re.search(r"log file at ([^\s]+/log/test\.log)", text)
     if match:
         path = Path(match.group(1))
         if not path.is_absolute():
-            path = (REPO_ROOT / "../Xplace" / path).resolve()
+            # Xplace logs its experiment dir relative to its own cwd, which is
+            # --xplace-root; REPO_ROOT/../Xplace is wrong from a worktree checkout.
+            root = Path(xplace_root) if xplace_root else REPO_ROOT / "../Xplace"
+            path = (root / path).resolve()
         return str(path.parents[1])
     return ""
 
@@ -1029,6 +1156,34 @@ def def_has_regular_nets(def_path):
     return False
 
 
+def resolve_eval_gpugr_root(args):
+    """Bundled GPUGR root to evaluate with, or "" to keep the external Xplace.
+
+    Only used when the run itself routes with the bundled backend
+    (--ruplace-router-backend gpugr) or explicitly names a root
+    (--ruplace-gpugr-root); otherwise the legacy external-Xplace eval is kept.
+    """
+    configured = str(getattr(args, "ruplace_gpugr_root", "") or "")
+    backend = str(getattr(args, "ruplace_router_backend", "xplace") or "xplace")
+    if backend != "gpugr" and not configured:
+        return ""
+    install_dir = str(REPO_ROOT / "install")
+    added = install_dir not in sys.path
+    if added:
+        sys.path.insert(0, install_dir)
+    try:
+        from dreamplace.ops.gpugr.gpugr_backend import BundledGPUGRBackend
+
+        return str(BundledGPUGRBackend.resolve_bundle_root(configured))
+    except Exception as e:
+        print("WARN: could not resolve bundled GPUGR root for eval (%s); "
+              "falling back to --xplace-root" % e)
+        return str(Path(configured).resolve()) if configured else ""
+    finally:
+        if added and install_dir in sys.path:
+            sys.path.remove(install_dir)
+
+
 def run_xplace_eval(args, design, placed_def, work_dir, log_path, use_verilog=True):
     case = get_case(args, design)
     eval_rrr_iters = getattr(args, "eval_route_rrr_iters", None)
@@ -1052,6 +1207,15 @@ def run_xplace_eval(args, design, placed_def, work_dir, log_path, use_verilog=Tr
         "--_eval-route-rrr-iters",
         str(eval_rrr_iters),
     ]
+    eval_gpugr_root = resolve_eval_gpugr_root(args)
+    if eval_gpugr_root:
+        cmd.extend(["--_eval-gpugr-root", eval_gpugr_root])
+    eval_util_mode = getattr(args, "ruplace_gr_util_mode", "legacy") or "legacy"
+    if eval_util_mode != "legacy":
+        cmd.extend(["--_eval-util-mode", str(eval_util_mode)])
+    eval_grid = str(getattr(args, "ruplace_gr_grid", "bins") or "bins")
+    if eval_grid.strip().lower() not in ("", "bins", "legacy"):
+        cmd.extend(["--_eval-gr-grid", eval_grid])
     for lef in case["lef_input"]:
         cmd.extend(["--_eval-lef", str(Path(lef).resolve())])
     eval_verilog = case.get("eval_verilog_input") or case.get("verilog_input")
@@ -1150,7 +1314,7 @@ def run_xplace_baseline(args, run_dir, design):
     row["elapsed_sec"] = "%.3f" % elapsed
     row.update(parse_xplace_metrics(log_path))
     row["place_hpwl"] = parse_place_hpwl(log_path)
-    exp_dir = parse_xplace_exp_dir(log_path)
+    exp_dir = parse_xplace_exp_dir(log_path, args.xplace_root)
     row["exp_dir"] = exp_dir
     row["placed_def"] = find_xplace_def(exp_dir)
     if row["placed_def"]:
@@ -1895,58 +2059,19 @@ def write_comparison_csv(path, rows):
             )
 
 
-def _calc_gr_wl_via(grdb, routeforce):
-    step_x, step_y = routeforce.gcell_steps()
-    layer_pitch = routeforce.layer_pitch()
-    layer_m2_pitch = layer_pitch[1] if len(layer_pitch) > 1 else layer_pitch[0]
-    gr_wirelength, gr_num_vias = grdb.report_gr_stat()
-    gr_wirelength = gr_wirelength * max(step_x, step_y) / layer_m2_pitch
-    return gr_wirelength, gr_num_vias
-
-
-def _estimate_num_shorts(routeforce, gpdb, cap_map, wire_dmd_map, via_dmd_map):
-    step_x, step_y = routeforce.gcell_steps()
-    layer_width = routeforce.layer_width()
-    layer_pitch = routeforce.layer_pitch()
-    microns = float(routeforce.microns())
-    layer_m2_pitch = layer_pitch[1] if len(layer_pitch) > 1 else layer_pitch[0]
-
-    m1direction = gpdb.m1direction()
-    h_id = 1 if m1direction else 0
-    v_id = 0 if m1direction else 1
-
-    import torch
-
-    layer_area = torch.tensor(layer_width, device=cap_map.device, dtype=cap_map.dtype)
-    layer_area[h_id::2].mul_(step_x / microns / layer_m2_pitch / layer_m2_pitch)
-    layer_area[v_id::2].mul_(step_y / microns / layer_m2_pitch / layer_m2_pitch)
-
-    wire_ovfl_map = (wire_dmd_map - cap_map).clamp(min=0.0)
-    routed_short_area = (wire_ovfl_map.sum(dim=(1, 2)) * layer_area).sum()
-    via_ovfl_mask = (wire_dmd_map > cap_map).float()
-    routed_short_via_num = (via_ovfl_mask * via_dmd_map).sum()
-    return (routed_short_area + routed_short_via_num).item()
-
-
-def _rc_means(cg_map_hv):
-    import torch
-
-    ace_list = [0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5]
-    ace_tsr = torch.tensor(ace_list, device=cg_map_hv.device, dtype=cg_map_hv.dtype)
-    tmp = torch.sort((cg_map_hv + 1).reshape(2, -1), descending=True)[0]
-    rc = torch.cumsum(tmp, 1) / torch.arange(1, tmp.shape[1] + 1, device=tmp.device, dtype=tmp.dtype)
-    indices = (tmp.shape[1] * ace_tsr).long().clamp(max=tmp.shape[1] - 1)
-    selected_rc = rc[:, indices].cpu()
-    return selected_rc.mean(dim=1).tolist()
-
-
 def eval_def_cli(argv):
     args = parse_eval_args(argv)
     xplace_root = args._eval_xplace_root.resolve()
+    if getattr(args, "_eval_gpugr_root", ""):
+        # Bundled GPUGR: extensions, flute tables and IOParser all come from
+        # the bundle so the eval matches the in-loop router exactly.
+        xplace_root = Path(args._eval_gpugr_root).resolve()
+        print("eval: using bundled GPUGR root %s" % xplace_root)
     if str(xplace_root) not in sys.path:
         sys.path.insert(0, str(xplace_root))
 
     import torch
+    from dreamplace.ops.gpugr import gr_metrics
     from dreamplace.ops.gpugr.xplace_backend import (
         _load_xplace_gpugr,
         _load_xplace_ioparser,
@@ -1987,6 +2112,34 @@ def eval_def_cli(argv):
     route_x_size = route_size if die_ratio <= 1 else round(route_size * die_ratio)
     route_y_size = route_size if die_ratio >= 1 else round(route_size / die_ratio)
 
+    # RUPlace batch 2 (A2): --ruplace-gr-grid overrides the derived square-ish grid.
+    #   ""/"bins"  -- keep the historical derivation above (default);
+    #   "def"      -- 0/0, i.e. let GRDatabase use the DEF GCELLGRID;
+    #   "NxM"      -- an explicit uniform grid.
+    #   "step:D"   -- a target gcell pitch in DEF dbu, resolved against the DIEAREA.
+    grid = str(getattr(args, "_eval_gr_grid", "") or "").strip().lower()
+    if grid == "def":
+        route_x_size, route_y_size = 0, 0
+    elif grid.startswith("step:"):
+        try:
+            _step = float(grid.split(":", 1)[1])
+        except ValueError:
+            _step = 0.0
+        if _step > 0:
+            # dieInfo() -> (dieLX, dieHX, dieLY, dieHY) in raw DEF dbu, i.e. the DIEAREA box.
+            _dlx, _dhx, _dly, _dhy = gpdb.dieInfo()
+            route_x_size = max(1, int(round((float(_dhx) - float(_dlx)) / _step)))
+            route_y_size = max(1, int(round((float(_dhy) - float(_dly)) / _step)))
+            print("GR grid: step %g dbu over die (%g, %g)-(%g, %g) -> %d x %d gcells"
+                  % (_step, _dlx, _dly, _dhx, _dhy, route_x_size, route_y_size))
+        else:
+            print("WARNING: unrecognized --ruplace-gr-grid %r, keeping the derived grid" % grid)
+    elif grid and grid not in ("bins", "legacy") and "x" in grid:
+        _a, _, _b = grid.partition("x")
+        try:
+            route_x_size, route_y_size = int(_a), int(_b)
+        except ValueError:
+            print("WARNING: unrecognized --ruplace-gr-grid %r, keeping the derived grid" % grid)
     gpugr.load_gr_params(
         {
             "device_id": args._eval_gpu,
@@ -2001,20 +2154,32 @@ def eval_def_cli(argv):
 
     dmd_map, wire_dmd_map, via_dmd_map = routeforce.dmd_map()
     cap_map = routeforce.cap_map()
-    eps = torch.finfo(dmd_map.dtype).eps
+    try:
+        fixed_map = routeforce.fixed_map()
+    except AttributeError:
+        fixed_map = None
 
     m1direction = gpdb.m1direction()
-    h_id = 1 if m1direction else 0
-    v_id = 0 if m1direction else 1
-    h_id = h_id + 2 if h_id == 0 else h_id
-    v_id = v_id + 2 if v_id == 0 else v_id
-    cg_h = dmd_map[h_id::2].sum(dim=0) / cap_map[h_id::2].sum(dim=0).clamp_min(eps)
-    cg_v = dmd_map[v_id::2].sum(dim=0) / cap_map[v_id::2].sum(dim=0).clamp_min(eps)
-    cg_map_hv = torch.stack(((cg_h - 1).clamp_min(0), (cg_v - 1).clamp_min(0))).contiguous()
+    util_mode = str(getattr(args, "_eval_util_mode", "legacy") or "legacy")
+    if util_mode == "avail" and fixed_map is None:
+        print("WARNING: --ruplace-gr-util-mode avail requested but no fixed_map(); using legacy")
+        util_mode = "legacy"
+    _, _, _, cg_map_hv = gr_metrics.hv_maps(
+        dmd_map, wire_dmd_map, via_dmd_map, cap_map,
+        fixed=fixed_map, m1direction=m1direction, util_mode=util_mode,
+    )
 
-    gr_wirelength, gr_vias = _calc_gr_wl_via(grdb, routeforce)
-    est_shorts = _estimate_num_shorts(routeforce, gpdb, cap_map, wire_dmd_map, via_dmd_map)
-    rc_hor, rc_ver = _rc_means(cg_map_hv)
+    step_x, step_y = routeforce.gcell_steps()
+    layer_pitch = routeforce.layer_pitch()
+    wl_steps, gr_vias = grdb.report_gr_stat()
+    gr_wirelength = gr_metrics.gr_wirelength_m2pitch(wl_steps, step_x, step_y, layer_pitch)
+    est_shorts = gr_metrics.estimate_num_shorts(
+        cap_map, wire_dmd_map, via_dmd_map,
+        layer_width=routeforce.layer_width(), layer_pitch=layer_pitch,
+        step_x=step_x, step_y=step_y, microns=float(routeforce.microns()),
+        m1direction=m1direction,
+    )
+    rc_hor, rc_ver = gr_metrics.rc_means(cg_map_hv)
     metrics = {
         "route_ovfl_nets": int(routeforce.num_ovfl_nets()),
         "route_wl": int(gr_wirelength),
