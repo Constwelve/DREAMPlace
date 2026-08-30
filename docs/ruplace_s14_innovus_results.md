@@ -298,6 +298,79 @@ must not be attached to a baseline.
 
 ## 6. How to run
 
+### 6.1 Minimal enablement (v120 and later)
+
+`dreamplace/params.json` now ships this campaign's `thr06_g070` settings as the
+default of every `ruplace_*` key, and `dreamplace/Params.py` applies the
+matching global keys when `ruplace_flag` is set. Enabling RUPlace is therefore
+two switches in an otherwise plain LEF/DEF config:
+
+```json
+{
+  "lef_input": ["tech.lef", "stdcells.lef"],
+  "def_input": "design.def",
+  "routability_opt_flag": 1,
+  "ruplace_flag": 1
+}
+```
+
+The preset fills in `target_density 1.0`, `gamma 0.92`, `gp_noise_ratio 0.03`,
+`stop_overflow 0.10`, `legalize_flag 1`, `num_bins_x/y 512` and one
+1000-iteration `nesterov` global-place stage for any of those keys the config
+does not set. Values in the config always win; each applied override is logged
+at INFO; `"ruplace_preset": "none"` disables the step; nothing happens when
+`ruplace_flag` is 0. Section 5's flag arrays are the equivalent explicit form
+and remain valid.
+
+The `balanced` alternative from section 4 is now two overrides on top of the
+default:
+
+```json
+{ "ruplace_inflate_util_threshold": 0.8, "ruplace_global_inflate_gamma": 0.25 }
+```
+
+Three preset keys are technology-dependent and must be retuned outside SMIC14:
+
+| Key | s14 default | Why |
+| --- | --- | --- |
+| `ruplace_gr_grid` | `step:2880` | 2880 dbu = 5 SMIC14 row heights per GR gcell |
+| `ruplace_gr_m1_routable` | `0` | M1 is not a routing layer on SMIC14 |
+| `ruplace_gr_max_route_len_per_pin` | `256` | suits that coarse gcell grid; 130 is the ISPD18 calibration |
+
+`tools/ruplace_quality.py` reads its `--ruplace-*` argparse defaults straight
+out of `dreamplace/params.json`, so the driver and the preset cannot drift
+apart; explicit flags still override. Running the driver with no `--ruplace-*`
+flag reproduces the `thr06_g070` config byte for byte apart from `random_seed`,
+`num_threads` and `result_dir`.
+
+### 6.2 Reproducing the published numbers from a fresh clone
+
+```bash
+git clone -b feat/ruplace-s14-innovus <repo> repro_clone
+cd repro_clone && git submodule update --init
+# build per README_RUPLACE.md "Build": cmake with gcc-9/g++-9, CUDA 11.8,
+# CMAKE_CUDA_ARCHITECTURES=7.5, CMAKE_CXX_ABI=0, then make -j16 && make install
+
+# minimal config: LEF/DEF + result_dir + gpu/num_threads/random_seed + the two switches
+export LD_LIBRARY_PATH="$CONDA_PREFIX/lib:$CONDA_PREFIX/targets/x86_64-linux/lib"
+unset CDS_LIC_FILE LM_LICENSE_FILE
+cd install && python dreamplace/Placer.py ../test/ruplace/nvdla_s_repro.json
+```
+
+The log must show the `RUPlace preset 'congestion': ...` lines, ~15-18
+`RUPlace GR: call N` in-loop router evaluations and a legalization step. Score
+the resulting DEF with `tools/ruplace_s14_innovus_eval.sh` (below).
+
+Reference, `nvdla_s_s14` seed 1001, v115 `thr06_g070`, Innovus EGR `global`:
+WL 4,602,377 / H 25,844 / V 12,660.
+
+Reproduction is **within seed noise, not bit-exact**: `deterministic_flag` is 0
+in every published run, so a same-seed GPU rerun already moves by around 1%, and
+the published medians use seeds 1001 and 1002. Expect agreement within about
+1-3% per metric. `random_seed` is deliberately left out of the preset.
+
+### 6.3 Campaign drivers
+
 ```bash
 set +u; source ~/miniconda3/etc/profile.d/conda.sh; conda activate placement; set -u
 
@@ -323,7 +396,8 @@ Two environment rules the drivers encode and that a hand-run must repeat:
   directory. Those shadow the bundled `libxplace_common.so` and segfault the in-loop router in
   `GRDatabase::addMovObs`.
 
-Build with `./build.sh` (CUDA 11.8, gcc-9, `CMAKE_CUDA_ARCHITECTURES 7.5`, `CMAKE_CXX_ABI 0`).
+Build with the cmake invocation in README_RUPLACE.md (CUDA 11.8, gcc-9,
+`CMAKE_CUDA_ARCHITECTURES 7.5`, `CMAKE_CXX_ABI 0`).
 Configure prints three "XplaceGPUGR ... already present" lines: the vendored router in
 `thirdparty/XplaceGPUGR` already carries the patches in `cmake/`, and CMake verifies rather
 than applies them. After editing anything under `dreamplace/ops/`, rebuild and reinstall - the
