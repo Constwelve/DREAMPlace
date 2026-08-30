@@ -18,6 +18,7 @@ if torch is not None:
     from dreamplace.ops.gpugr.xplace_backend import XplaceGGRAdapter
     from dreamplace.ops.routability_opt.ruplace_op import RUPlaceController, RUPlaceInflation
 
+import dreamplace.Params as Params
 from dreamplace.ops.gpugr.base import GPUGRRequest
 from dreamplace.ops.gpugr.gpugr import build_gpugr_backend
 from dreamplace.ops.gpugr.instantgr_backend import InstantGRBackend
@@ -158,7 +159,8 @@ class RUPlaceInflationTest(unittest.TestCase):
         data.node_areas = data.node_size_x * data.node_size_y
 
         route = Obj()
-        # No bin is over capacity: legacy inflation (threshold 1.0) must be a no-op.
+        # No bin is over capacity: with an explicit threshold of 1.0 (the legacy
+        # value, no longer the params.json default) inflation must be a no-op.
         route.utilization_map = torch.full((2, 2), float(bin_util))
         route.overflow_map = torch.clamp(route.utilization_map - 1.0, min=0.0)
         route.metrics = {}
@@ -166,7 +168,7 @@ class RUPlaceInflationTest(unittest.TestCase):
         pos = torch.tensor([0.0, 2.0, 1.0, 0.0, 0.0, 0.0])
         return params, placedb, data, route, pos
 
-    def test_inflate_util_threshold_default_leaves_underfull_bins_untouched(self):
+    def test_inflate_util_threshold_one_leaves_underfull_bins_untouched(self):
         params, placedb, data, route, pos = self._threshold_fixture(1.0)
         before_x = data.node_size_x.clone()
         before_y = data.node_size_y.clone()
@@ -511,6 +513,96 @@ class RUPlaceControllerADMMTest(unittest.TestCase):
         clipped = controller._clip_admm_gradient(grad)
         self.assertAlmostEqual(clipped.norm().item(), 5.0, places=6)
         self.assertTrue(torch.allclose(clipped, torch.tensor([3.0, 4.0, 0.0]), atol=1e-6))
+
+
+class RUPlacePresetTest(unittest.TestCase):
+    """Global-key half of the RUPlace congestion preset (dreamplace/Params.py)."""
+
+    PRESET = {
+        "target_density": 1.0,
+        "gamma": 0.92,
+        "gp_noise_ratio": 0.03,
+        "stop_overflow": 0.10,
+        "legalize_flag": 1,
+        "num_bins_x": 512,
+        "num_bins_y": 512,
+    }
+
+    @staticmethod
+    def _params(data):
+        params = Params.Params()
+        params.fromJson(data)
+        return params
+
+    def test_preset_fills_global_keys_the_user_left_out(self):
+        params = self._params({"routability_opt_flag": 1, "ruplace_flag": 1})
+        for key, value in self.PRESET.items():
+            self.assertEqual(getattr(params, key), value, key)
+        stages = params.global_place_stages
+        self.assertEqual(len(stages), 1)
+        self.assertEqual(stages[0]["iteration"], 1000)
+        self.assertEqual(stages[0]["optimizer"], "nesterov")
+        self.assertEqual(stages[0]["wirelength"], "weighted_average")
+        self.assertEqual(stages[0]["num_bins_x"], 512)
+        self.assertEqual(stages[0]["num_bins_y"], 512)
+        # the ruplace_* half of the preset is carried by the params.json defaults
+        self.assertEqual(params.ruplace_inflate_util_threshold, 0.6)
+        self.assertEqual(params.ruplace_global_inflate_gamma, 0.7)
+        self.assertEqual(params.ruplace_gr_grid, "step:2880")
+        self.assertEqual(params.ruplace_gr_m1_routable, 0)
+        self.assertEqual(params.ruplace_external_route_eval, 0)
+
+    def test_explicit_user_values_win(self):
+        params = self._params({
+            "routability_opt_flag": 1,
+            "ruplace_flag": 1,
+            "target_density": 0.85,
+            "stop_overflow": 0.07,
+            "legalize_flag": 0,
+            "num_bins_x": 1024,
+            "global_place_stages": [{"iteration": 42, "optimizer": "adam"}],
+        })
+        self.assertEqual(params.target_density, 0.85)
+        self.assertEqual(params.stop_overflow, 0.07)
+        self.assertEqual(params.legalize_flag, 0)
+        self.assertEqual(params.num_bins_x, 1024)
+        self.assertEqual(len(params.global_place_stages), 1)
+        self.assertEqual(params.global_place_stages[0]["iteration"], 42)
+        # keys the user did not spell out are still filled in
+        self.assertEqual(params.gamma, 0.92)
+        self.assertEqual(params.gp_noise_ratio, 0.03)
+        self.assertEqual(params.num_bins_y, 512)
+
+    def test_no_preset_without_ruplace_flag(self):
+        baseline = Params.Params()
+        params = self._params({"routability_opt_flag": 1})
+        for key in list(self.PRESET) + ["global_place_stages"]:
+            self.assertEqual(getattr(params, key), getattr(baseline, key), key)
+        # sanity: the untouched params.json defaults really do differ from the preset
+        self.assertNotEqual(params.target_density, self.PRESET["target_density"])
+        self.assertNotEqual(params.gamma, self.PRESET["gamma"])
+
+    def test_preset_none_disables_it(self):
+        baseline = Params.Params()
+        params = self._params({"ruplace_flag": 1, "ruplace_preset": "none"})
+        for key in list(self.PRESET) + ["global_place_stages"]:
+            self.assertEqual(getattr(params, key), getattr(baseline, key), key)
+        # the ruplace_* defaults are unaffected by ruplace_preset
+        self.assertEqual(params.ruplace_inflate_util_threshold, 0.6)
+
+    def test_applied_overrides_are_logged(self):
+        with self.assertLogs(level="INFO") as captured:
+            self._params({"routability_opt_flag": 1, "ruplace_flag": 1})
+        messages = "\n".join(captured.output)
+        self.assertIn("RUPlace preset 'congestion': target_density 0.8 -> 1.0", messages)
+        self.assertIn("RUPlace preset 'congestion': gamma 4.0 -> 0.92", messages)
+
+    def test_unknown_preset_warns_and_changes_nothing(self):
+        baseline = Params.Params()
+        with self.assertLogs(level="WARNING"):
+            params = self._params({"ruplace_flag": 1, "ruplace_preset": "nope"})
+        for key in list(self.PRESET) + ["global_place_stages"]:
+            self.assertEqual(getattr(params, key), getattr(baseline, key), key)
 
 
 if __name__ == "__main__":

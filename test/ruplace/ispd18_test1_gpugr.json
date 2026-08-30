@@ -1,4 +1,5 @@
 {
+  "_note": "ISPD18 example: pins the ISPD18-calibrated GR settings explicitly, because the params.json ruplace_* defaults now ship the s14 congestion preset.",
   "lef_input": [
     "../Xplace/data/ispd18_test1.input.lef"
   ],
@@ -39,5 +40,24 @@
   "ruplace_inflate_start_overflow": 0.2,
   "ruplace_admm_start_overflow": 0.2,
   "ruplace_admm_route_freq": 20,
-  "ruplace_router_backend": "gpugr"
+  "ruplace_router_backend": "gpugr",
+  "ruplace_gr_grid": "bins",
+  "ruplace_gr_util_mode": "legacy",
+  "ruplace_gr_via_usage_scale": 1.5,
+  "ruplace_gr_m1_routable": 1,
+  "ruplace_gr_max_route_len_per_pin": 130,
+  "ruplace_gr_wire_cost_sat": 0,
+  "ruplace_write_guides": 1,
+  "ruplace_external_route_eval": 1,
+  "ruplace_inflate_util_threshold": 1.0,
+  "ruplace_global_inflate_gamma": 0.35,
+  "ruplace_global_cluster_mode": "mean",
+  "ruplace_global_util_exponent": 1.0,
+  "ruplace_local_inflate_gamma": 0.15,
+  "ruplace_local_inflate_max_rounds": 0,
+  "ruplace_inflate_area_cap": 0.01,
+  "ruplace_hv_inflate_gamma": 0.0,
+  "ruplace_allow_shrink": 0,
+  "ruplace_admm_apply_freq": 1,
+  "ruplace_admm_weight": 0.5
 }

@@ -7,10 +7,40 @@
 
 import os
 import sys
+import copy
 import json 
+import logging
 import math 
 from collections import OrderedDict
 import pdb
+
+# Global (non-RUPlace) DREAMPlace keys that the s14-calibrated RUPlace congestion
+# preset needs.  The ruplace_* half of the preset lives in the params.json
+# defaults; this is the rest.  It is applied ONLY when ``ruplace_flag`` is set,
+# only when ``ruplace_preset`` names it, and only to keys the user did not spell
+# out in the JSON -- so plain DREAMPlace (ruplace_flag 0) is byte-identical.
+RUPLACE_PRESETS = {
+    "congestion": OrderedDict([
+        ("target_density", 1.0),
+        ("gamma", 0.92),
+        ("gp_noise_ratio", 0.03),
+        ("stop_overflow", 0.10),
+        ("legalize_flag", 1),
+        ("num_bins_x", 512),
+        ("num_bins_y", 512),
+        ("global_place_stages", [
+            {
+                "num_bins_x": 512,
+                "num_bins_y": 512,
+                "iteration": 1000,
+                "learning_rate": 0.01,
+                "wirelength": "weighted_average",
+                "optimizer": "nesterov",
+            }
+        ]),
+    ]),
+}
+
 
 class Params:
     """
@@ -122,6 +152,42 @@ class Params:
         """
         for key, value in data.items(): 
             self.__dict__[key] = value
+        self.applyRuplacePreset(data.keys())
+
+    def applyRuplacePreset(self, user_keys=()):
+        """
+        @brief apply the global-key half of the RUPlace preset
+
+        Enabling RUPlace with nothing but ``routability_opt_flag`` and
+        ``ruplace_flag`` must reproduce the calibrated flow, so the non-RUPlace
+        DREAMPlace keys that calibration depends on are filled in here.  The
+        preset runs only when ``ruplace_flag`` is set and ``ruplace_preset``
+        names a known preset ("none" disables it); keys the user spelled out in
+        the JSON always win, and every value actually changed is logged at INFO.
+        @param user_keys keys given explicitly by the user, never overridden
+        @return list of keys the preset changed
+        """
+        if not int(self.__dict__.get("ruplace_flag", 0) or 0):
+            return []
+        name = str(self.__dict__.get("ruplace_preset", "none") or "none").strip().lower()
+        if name in ("", "none"):
+            return []
+        preset = RUPLACE_PRESETS.get(name)
+        if preset is None:
+            logging.warning("unknown ruplace_preset %r; no preset applied", name)
+            return []
+        user_keys = set(user_keys)
+        applied = []
+        for key, value in preset.items():
+            if key in user_keys:
+                continue
+            old = self.__dict__.get(key)
+            if old == value:
+                continue
+            self.__dict__[key] = copy.deepcopy(value)
+            applied.append(key)
+            logging.info("RUPlace preset '%s': %s %s -> %s" % (name, key, old, value))
+        return applied
 
     def dump(self, filename):
         """

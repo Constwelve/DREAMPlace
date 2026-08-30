@@ -23,6 +23,31 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+PARAMS_JSON = REPO_ROOT / "dreamplace" / "params.json"
+
+
+def _load_params_defaults(path=PARAMS_JSON):
+    """Read the DREAMPlace parameter defaults out of ``dreamplace/params.json``."""
+    with open(path) as stream:
+        raw = json.load(stream)
+    return {key: entry.get("default") for key, entry in raw.items()}
+
+
+PARAMS_DEFAULTS = _load_params_defaults()
+
+
+def params_default(key):
+    """Return the ``dreamplace/params.json`` default for ``key``.
+
+    Every RUPlace argparse default and every RUPlace ``getattr`` fallback in this
+    driver goes through here, so the driver and params.json cannot drift apart.
+    Explicit command-line flags still override the value.
+    """
+    if key not in PARAMS_DEFAULTS:
+        raise KeyError("unknown DREAMPlace parameter %r (not in %s)" % (key, PARAMS_JSON))
+    return PARAMS_DEFAULTS[key]
+
+
 PILOT_DESIGNS = ["ispd18_test1", "ispd18_test2", "ispd18_test3"]
 FULL_DESIGNS = ["ispd18_test%d" % i for i in range(1, 11)]
 DEFAULT_METHODS = ["input_ggr", "dp_hpwl", "dp_rudy", "ruplace", "xplace_inflate"]
@@ -68,7 +93,7 @@ FIELDNAMES = [
 ]
 
 
-def parse_args():
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(
         description="Validate RUPlace routability quality on ISPD18 designs."
     )
@@ -147,7 +172,7 @@ def parse_args():
     parser.add_argument(
         "--ruplace-router-backend",
         choices=["xplace", "gpugr"],
-        default="xplace",
+        default=params_default("ruplace_router_backend"),
         help="Router backend used inside RUPlace optimization; final metrics still use the shared Xplace GGR evaluator.",
     )
     parser.add_argument(
@@ -200,72 +225,76 @@ def parse_args():
             "router only inside RUPlace optimization but keeping paper metrics comparable."
         ),
     )
+    # Every --ruplace-* default below is read from dreamplace/params.json via
+    # params_default() so the driver and params.json cannot drift apart.  Since
+    # params.json ships the s14-calibrated congestion preset, running with no
+    # --ruplace-* flag reproduces that preset; explicit flags still override.
     parser.add_argument(
         "--ruplace-inflate-start-overflow",
         type=float,
-        default=0.2,
+        default=float(params_default("ruplace_inflate_start_overflow")),
         help="Density overflow threshold to start RUPlace route-driven inflation.",
     )
-    parser.add_argument("--ruplace-max-inflate-ratio", type=float, default=2.0)
-    parser.add_argument("--ruplace-min-inflate-ratio", type=float, default=1.0)
-    parser.add_argument("--ruplace-global-inflate-gamma", type=float, default=0.35)
+    parser.add_argument("--ruplace-max-inflate-ratio", type=float, default=float(params_default("ruplace_max_inflate_ratio")))
+    parser.add_argument("--ruplace-min-inflate-ratio", type=float, default=float(params_default("ruplace_min_inflate_ratio")))
+    parser.add_argument("--ruplace-global-inflate-gamma", type=float, default=float(params_default("ruplace_global_inflate_gamma")))
     parser.add_argument(
         "--ruplace-global-cluster-mode",
-        default="mean",
+        default=params_default("ruplace_global_cluster_mode"),
         choices=["mean", "max", "none"],
         help="Cluster aggregation for global RUPlace inflation.",
     )
     parser.add_argument(
         "--ruplace-global-util-exponent",
         type=float,
-        default=1.0,
+        default=float(params_default("ruplace_global_util_exponent")),
         help="Exponent applied to route utilization excess before global inflation.",
     )
-    parser.add_argument("--ruplace-local-inflate-gamma", type=float, default=0.15)
-    parser.add_argument("--ruplace-inflate-area-cap", type=float, default=0.01)
+    parser.add_argument("--ruplace-local-inflate-gamma", type=float, default=float(params_default("ruplace_local_inflate_gamma")))
+    parser.add_argument("--ruplace-inflate-area-cap", type=float, default=float(params_default("ruplace_inflate_area_cap")))
     parser.add_argument(
         "--ruplace-inflate-util-threshold",
         type=float,
-        default=1.0,
+        default=float(params_default("ruplace_inflate_util_threshold")),
         help=(
             "Route utilization fraction treated as congested by RUPlace inflation. "
             "Node utilization is divided by this before clamping at 1.0; 1.0 is legacy."
         ),
     )
-    parser.add_argument("--ruplace-inflate-extra-capacity", type=float, default=0.0)
-    parser.add_argument("--ruplace-congested-uniform-inflate-ratio", type=float, default=1.0)
+    parser.add_argument("--ruplace-inflate-extra-capacity", type=float, default=float(params_default("ruplace_inflate_extra_capacity")))
+    parser.add_argument("--ruplace-congested-uniform-inflate-ratio", type=float, default=float(params_default("ruplace_congested_uniform_inflate_ratio")))
     parser.add_argument(
         "--ruplace-hv-inflate-gamma",
         type=float,
-        default=0.0,
+        default=float(params_default("ruplace_hv_inflate_gamma")),
         help="Extra inflation pressure from H/V route overflow maps; 0 disables directional H/V-aware inflation.",
     )
     parser.add_argument(
         "--ruplace-hv-inflate-mode",
-        default="max",
+        default=params_default("ruplace_hv_inflate_mode"),
         choices=["max", "mean", "sum", "h", "v"],
         help="How to combine horizontal and vertical overflow for H/V-aware inflation.",
     )
-    parser.add_argument("--ruplace-local-inflate-max-rounds", type=int, default=0)
+    parser.add_argument("--ruplace-local-inflate-max-rounds", type=int, default=int(params_default("ruplace_local_inflate_max_rounds")))
     parser.add_argument(
         "--ruplace-allow-shrink",
         type=int,
         choices=[0, 1],
-        default=0,
+        default=int(params_default("ruplace_allow_shrink")),
         help="Allow local adjustment to shrink over-inflated cells toward original size.",
     )
-    # ---- RUPlace batch 2 (A1/A2/A3): GR map + grid knobs.  Defaults = legacy behavior. ----
+    # ---- RUPlace GR map + grid knobs. ----
     parser.add_argument(
         "--ruplace-gr-util-mode",
         choices=["legacy", "avail"],
-        default="legacy",
+        default=params_default("ruplace_gr_util_mode"),
         help="Congestion definition for the RUPlace GR maps: legacy (dmd/cap) or avail "
              "((dmd-fixed)/(cap-fixed)).  Also forwarded to the DEF eval path.",
     )
     parser.add_argument(
         "--ruplace-gr-grid",
-        default="bins",
-        help="GR gcell grid for RUPlace methods: 'bins' (default), 'def' (use the DEF "
+        default=params_default("ruplace_gr_grid"),
+        help="GR gcell grid for RUPlace methods: 'bins', 'def' (use the DEF "
              "GCELLGRID) or an explicit 'NxM' such as 625x650.  'def'/'NxM' are also "
              "honoured by the DEF eval path.",
     )
@@ -273,88 +302,88 @@ def parse_args():
         "--ruplace-write-guides",
         type=int,
         choices=[0, 1],
-        default=1,
-        help="1 (default) = the router writes a route guide file each evaluation; 0 = skip it.",
+        default=int(params_default("ruplace_write_guides")),
+        help="1 = the router writes a route guide file each evaluation; 0 = skip it.",
     )
     parser.add_argument(
         "--ruplace-gr-wire-cost-sat",
         type=int,
         choices=[0, 1],
-        default=0,
+        default=int(params_default("ruplace_gr_wire_cost_sat")),
         help="1 = saturate the pattern-router int64->int wire-cost difference at INF instead "
              "of letting it overflow (recovers long nets that otherwise report `failed`).",
     )
     parser.add_argument(
         "--ruplace-gr-via-usage-scale",
         type=float,
-        default=1.5,
+        default=float(params_default("ruplace_gr_via_usage_scale")),
         help="GGR viaUsageScale for RUPlace methods (1.5 = ISPD18 calibration, 0 = no extra via demand).",
     )
     parser.add_argument(
         "--ruplace-gr-m1-routable",
         type=int,
         choices=[0, 1],
-        default=1,
+        default=int(params_default("ruplace_gr_m1_routable")),
         help="1 = GGR may route on M1; 0 = M1 unroutable (the SMIC14 setting).",
     )
     parser.add_argument(
         "--ruplace-gr-max-route-len-per-pin",
         type=int,
-        default=130,
+        default=int(params_default("ruplace_gr_max_route_len_per_pin")),
         help="GGR maxRouteLenPerPin in gcells (130 = ISPD18 calibration, 256 for the coarse s14 grid).",
     )
-    parser.add_argument("--ruplace-local-ovfl-nets-stop", type=float, default=0.0)
-    parser.add_argument("--ruplace-local-est-shorts-stop", type=float, default=0.0)
+    parser.add_argument("--ruplace-local-ovfl-nets-stop", type=float, default=float(params_default("ruplace_local_ovfl_nets_stop")))
+    parser.add_argument("--ruplace-local-est-shorts-stop", type=float, default=float(params_default("ruplace_local_est_shorts_stop")))
     parser.add_argument(
         "--ruplace-external-route-eval",
         type=int,
         choices=[0, 1],
-        default=1,
-        help="Use subprocess Xplace GGR eval. Set 0 to enable in-process ADMM route gradients.",
+        default=int(params_default("ruplace_external_route_eval")),
+        help="1 = subprocess Xplace GGR eval; 0 = in-process ADMM route gradients.",
     )
     parser.add_argument(
         "--ruplace-admm-start-overflow",
         type=float,
-        default=0.6,
+        default=float(params_default("ruplace_admm_start_overflow")),
         help="Density overflow threshold to start RUPlace routed-wire ADMM refinement.",
     )
-    parser.add_argument("--ruplace-admm-route-freq", type=int, default=20)
+    parser.add_argument("--ruplace-admm-route-freq", type=int, default=int(params_default("ruplace_admm_route_freq")))
     parser.add_argument(
         "--ruplace-admm-apply-freq",
         type=int,
-        default=1,
+        default=int(params_default("ruplace_admm_apply_freq")),
         help="Placement-iteration interval for applying RUPlace ADMM gradients.",
     )
-    parser.add_argument("--ruplace-admm-weight", type=float, default=0.5)
+    parser.add_argument("--ruplace-admm-weight", type=float, default=float(params_default("ruplace_admm_weight")))
     parser.add_argument(
         "--ruplace-admm-weight-decay",
         type=float,
-        default=1.0,
+        default=float(params_default("ruplace_admm_weight_decay")),
         help="Multiplicative decay of the RUPlace ADMM gradient weight after each application.",
     )
     parser.add_argument(
         "--ruplace-admm-min-weight",
         type=float,
-        default=0.0,
+        default=float(params_default("ruplace_admm_min_weight")),
         help="Minimum decayed RUPlace ADMM gradient weight; 0 disables the floor.",
     )
     parser.add_argument(
         "--ruplace-admm-grad-clip-norm",
         type=float,
-        default=0.0,
+        default=float(params_default("ruplace_admm_grad_clip_norm")),
         help="Global norm for clipping RUPlace ADMM gradients before weighting; 0 disables clipping.",
     )
-    parser.add_argument("--ruplace-admm-anchor-weight", type=float, default=0.1)
+    parser.add_argument("--ruplace-admm-anchor-weight", type=float, default=float(params_default("ruplace_admm_anchor_weight")))
     parser.add_argument(
         "--ruplace-admm-anchor-update",
         choices=["refresh", "static", "ema"],
-        default="refresh",
+        default=params_default("ruplace_admm_anchor_update"),
         help="Anchor update policy for RUPlace ADMM route gradients.",
     )
     parser.add_argument(
         "--ruplace-admm-anchor-decay",
         type=float,
-        default=0.9,
+        default=float(params_default("ruplace_admm_anchor_decay")),
         help="EMA decay for ADMM anchor update when --ruplace-admm-anchor-update=ema.",
     )
     parser.add_argument(
@@ -372,7 +401,7 @@ def parse_args():
     )
     parser.add_argument("--fail-on-gate", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def parse_eval_args(argv):
@@ -757,25 +786,25 @@ def build_dreamplace_config(args, design, method, result_dir):
                 "routability_opt_flag": 1,
                 "ruplace_flag": 1,
                 "ruplace_xplace_root": str(Path(args.xplace_root).resolve()),
-                "ruplace_router_backend": getattr(args, "ruplace_router_backend", "xplace"),
+                "ruplace_router_backend": getattr(args, "ruplace_router_backend", params_default("ruplace_router_backend")),
                 "ruplace_route_gpu": getattr(args, "gpu", 0),
                 "ruplace_gr_rrr_iters": args.route_rrr_iters,
-                "ruplace_gr_util_mode": getattr(args, "ruplace_gr_util_mode", "legacy"),
-                "ruplace_gr_grid": getattr(args, "ruplace_gr_grid", "bins"),
-                "ruplace_write_guides": int(getattr(args, "ruplace_write_guides", 1)),
-                "ruplace_gr_wire_cost_sat": int(getattr(args, "ruplace_gr_wire_cost_sat", 0)),
-                "ruplace_gr_via_usage_scale": float(getattr(args, "ruplace_gr_via_usage_scale", 1.5)),
-                "ruplace_gr_m1_routable": int(getattr(args, "ruplace_gr_m1_routable", 1)),
+                "ruplace_gr_util_mode": getattr(args, "ruplace_gr_util_mode", params_default("ruplace_gr_util_mode")),
+                "ruplace_gr_grid": getattr(args, "ruplace_gr_grid", params_default("ruplace_gr_grid")),
+                "ruplace_write_guides": int(getattr(args, "ruplace_write_guides", params_default("ruplace_write_guides"))),
+                "ruplace_gr_wire_cost_sat": int(getattr(args, "ruplace_gr_wire_cost_sat", params_default("ruplace_gr_wire_cost_sat"))),
+                "ruplace_gr_via_usage_scale": float(getattr(args, "ruplace_gr_via_usage_scale", params_default("ruplace_gr_via_usage_scale"))),
+                "ruplace_gr_m1_routable": int(getattr(args, "ruplace_gr_m1_routable", params_default("ruplace_gr_m1_routable"))),
                 "ruplace_gr_max_route_len_per_pin": int(
-                    getattr(args, "ruplace_gr_max_route_len_per_pin", 130)
+                    getattr(args, "ruplace_gr_max_route_len_per_pin", params_default("ruplace_gr_max_route_len_per_pin"))
                 ),
                 "ruplace_external_route_eval": external_route_eval,
                 "ruplace_inflate_start_overflow": args.ruplace_inflate_start_overflow,
                 "ruplace_max_inflate_ratio": args.ruplace_max_inflate_ratio,
                 "ruplace_min_inflate_ratio": args.ruplace_min_inflate_ratio,
                 "ruplace_global_inflate_gamma": args.ruplace_global_inflate_gamma,
-                "ruplace_global_cluster_mode": getattr(args, "ruplace_global_cluster_mode", "mean"),
-                "ruplace_global_util_exponent": getattr(args, "ruplace_global_util_exponent", 1.0),
+                "ruplace_global_cluster_mode": getattr(args, "ruplace_global_cluster_mode", params_default("ruplace_global_cluster_mode")),
+                "ruplace_global_util_exponent": getattr(args, "ruplace_global_util_exponent", params_default("ruplace_global_util_exponent")),
                 "ruplace_local_inflate_gamma": args.ruplace_local_inflate_gamma,
                 "ruplace_inflate_area_cap": args.ruplace_inflate_area_cap,
                 "ruplace_inflate_util_threshold": getattr(
@@ -783,22 +812,22 @@ def build_dreamplace_config(args, design, method, result_dir):
                 ),
                 "ruplace_inflate_extra_capacity": args.ruplace_inflate_extra_capacity,
                 "ruplace_congested_uniform_inflate_ratio": args.ruplace_congested_uniform_inflate_ratio,
-                "ruplace_hv_inflate_gamma": getattr(args, "ruplace_hv_inflate_gamma", 0.0),
-                "ruplace_hv_inflate_mode": getattr(args, "ruplace_hv_inflate_mode", "max"),
+                "ruplace_hv_inflate_gamma": getattr(args, "ruplace_hv_inflate_gamma", params_default("ruplace_hv_inflate_gamma")),
+                "ruplace_hv_inflate_mode": getattr(args, "ruplace_hv_inflate_mode", params_default("ruplace_hv_inflate_mode")),
                 "ruplace_local_inflate_max_rounds": args.ruplace_local_inflate_max_rounds,
                 "ruplace_allow_shrink": args.ruplace_allow_shrink,
                 "ruplace_local_ovfl_nets_stop": args.ruplace_local_ovfl_nets_stop,
                 "ruplace_local_est_shorts_stop": args.ruplace_local_est_shorts_stop,
                 "ruplace_admm_start_overflow": args.ruplace_admm_start_overflow,
                 "ruplace_admm_route_freq": args.ruplace_admm_route_freq,
-                "ruplace_admm_apply_freq": getattr(args, "ruplace_admm_apply_freq", 1),
+                "ruplace_admm_apply_freq": getattr(args, "ruplace_admm_apply_freq", params_default("ruplace_admm_apply_freq")),
                 "ruplace_admm_weight": args.ruplace_admm_weight,
-                "ruplace_admm_weight_decay": getattr(args, "ruplace_admm_weight_decay", 1.0),
-                "ruplace_admm_min_weight": getattr(args, "ruplace_admm_min_weight", 0.0),
-                "ruplace_admm_grad_clip_norm": getattr(args, "ruplace_admm_grad_clip_norm", 0.0),
+                "ruplace_admm_weight_decay": getattr(args, "ruplace_admm_weight_decay", params_default("ruplace_admm_weight_decay")),
+                "ruplace_admm_min_weight": getattr(args, "ruplace_admm_min_weight", params_default("ruplace_admm_min_weight")),
+                "ruplace_admm_grad_clip_norm": getattr(args, "ruplace_admm_grad_clip_norm", params_default("ruplace_admm_grad_clip_norm")),
                 "ruplace_admm_anchor_weight": args.ruplace_admm_anchor_weight,
-                "ruplace_admm_anchor_update": getattr(args, "ruplace_admm_anchor_update", "refresh"),
-                "ruplace_admm_anchor_decay": getattr(args, "ruplace_admm_anchor_decay", 0.9),
+                "ruplace_admm_anchor_update": getattr(args, "ruplace_admm_anchor_update", params_default("ruplace_admm_anchor_update")),
+                "ruplace_admm_anchor_decay": getattr(args, "ruplace_admm_anchor_decay", params_default("ruplace_admm_anchor_decay")),
             }
         )
         gpugr_root = getattr(args, "ruplace_gpugr_root", None)
@@ -1164,7 +1193,7 @@ def resolve_eval_gpugr_root(args):
     (--ruplace-gpugr-root); otherwise the legacy external-Xplace eval is kept.
     """
     configured = str(getattr(args, "ruplace_gpugr_root", "") or "")
-    backend = str(getattr(args, "ruplace_router_backend", "xplace") or "xplace")
+    backend = str(getattr(args, "ruplace_router_backend", params_default("ruplace_router_backend")) or "xplace")
     if backend != "gpugr" and not configured:
         return ""
     install_dir = str(REPO_ROOT / "install")
@@ -1210,10 +1239,10 @@ def run_xplace_eval(args, design, placed_def, work_dir, log_path, use_verilog=Tr
     eval_gpugr_root = resolve_eval_gpugr_root(args)
     if eval_gpugr_root:
         cmd.extend(["--_eval-gpugr-root", eval_gpugr_root])
-    eval_util_mode = getattr(args, "ruplace_gr_util_mode", "legacy") or "legacy"
+    eval_util_mode = getattr(args, "ruplace_gr_util_mode", params_default("ruplace_gr_util_mode")) or "legacy"
     if eval_util_mode != "legacy":
         cmd.extend(["--_eval-util-mode", str(eval_util_mode)])
-    eval_grid = str(getattr(args, "ruplace_gr_grid", "bins") or "bins")
+    eval_grid = str(getattr(args, "ruplace_gr_grid", params_default("ruplace_gr_grid")) or "bins")
     if eval_grid.strip().lower() not in ("", "bins", "legacy"):
         cmd.extend(["--_eval-gr-grid", eval_grid])
     for lef in case["lef_input"]:

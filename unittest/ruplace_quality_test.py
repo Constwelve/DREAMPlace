@@ -100,6 +100,26 @@ class RUPlaceQualityTest(unittest.TestCase):
                 random_seed=7,
                 num_threads=4,
                 route_rrr_iters=1,
+                # Every --ruplace-* default now comes from dreamplace/params.json,
+                # so these tests pin the values they assert on explicitly.
+                ruplace_router_backend="gpugr",
+                ruplace_gr_util_mode="legacy",
+                ruplace_gr_grid="bins",
+                ruplace_write_guides=1,
+                ruplace_gr_wire_cost_sat=0,
+                ruplace_gr_via_usage_scale=1.5,
+                ruplace_gr_m1_routable=1,
+                ruplace_gr_max_route_len_per_pin=130,
+                ruplace_global_cluster_mode="mean",
+                ruplace_global_util_exponent=1.0,
+                ruplace_hv_inflate_gamma=0.0,
+                ruplace_hv_inflate_mode="max",
+                ruplace_admm_apply_freq=1,
+                ruplace_admm_weight_decay=1.0,
+                ruplace_admm_min_weight=0.0,
+                ruplace_admm_grad_clip_norm=0.0,
+                ruplace_admm_anchor_update="refresh",
+                ruplace_admm_anchor_decay=0.9,
                 ruplace_external_route_eval=1,
                 ruplace_inflate_start_overflow=1.0,
                 ruplace_max_inflate_ratio=2.0,
@@ -147,6 +167,15 @@ class RUPlaceQualityTest(unittest.TestCase):
         self.assertEqual(ru["gamma"], 6.0)
         self.assertEqual(ru["gp_noise_ratio"], 0.01)
         self.assertIn("ruplace_xplace_root", ru)
+        self.assertEqual(ru["ruplace_router_backend"], "gpugr")
+        self.assertEqual(ru["ruplace_gr_util_mode"], "legacy")
+        self.assertEqual(ru["ruplace_gr_grid"], "bins")
+        self.assertEqual(ru["ruplace_write_guides"], 1)
+        self.assertEqual(ru["ruplace_gr_wire_cost_sat"], 0)
+        self.assertEqual(ru["ruplace_gr_via_usage_scale"], 1.5)
+        self.assertEqual(ru["ruplace_gr_m1_routable"], 1)
+        self.assertEqual(ru["ruplace_gr_max_route_len_per_pin"], 130)
+        self.assertEqual(ru["ruplace_admm_apply_freq"], 1)
 
     def test_ruplace_target_density_override(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -165,6 +194,26 @@ class RUPlaceQualityTest(unittest.TestCase):
                 random_seed=7,
                 num_threads=4,
                 route_rrr_iters=1,
+                # Every --ruplace-* default now comes from dreamplace/params.json,
+                # so these tests pin the values they assert on explicitly.
+                ruplace_router_backend="gpugr",
+                ruplace_gr_util_mode="legacy",
+                ruplace_gr_grid="bins",
+                ruplace_write_guides=1,
+                ruplace_gr_wire_cost_sat=0,
+                ruplace_gr_via_usage_scale=1.5,
+                ruplace_gr_m1_routable=1,
+                ruplace_gr_max_route_len_per_pin=130,
+                ruplace_global_cluster_mode="mean",
+                ruplace_global_util_exponent=1.0,
+                ruplace_hv_inflate_gamma=0.0,
+                ruplace_hv_inflate_mode="max",
+                ruplace_admm_apply_freq=1,
+                ruplace_admm_weight_decay=1.0,
+                ruplace_admm_min_weight=0.0,
+                ruplace_admm_grad_clip_norm=0.0,
+                ruplace_admm_anchor_update="refresh",
+                ruplace_admm_anchor_decay=0.9,
                 ruplace_external_route_eval=1,
                 ruplace_inflate_start_overflow=1.0,
                 ruplace_max_inflate_ratio=2.0,
@@ -216,6 +265,26 @@ class RUPlaceQualityTest(unittest.TestCase):
                 random_seed=7,
                 num_threads=4,
                 route_rrr_iters=1,
+                # Every --ruplace-* default now comes from dreamplace/params.json,
+                # so these tests pin the values they assert on explicitly.
+                ruplace_router_backend="gpugr",
+                ruplace_gr_util_mode="legacy",
+                ruplace_gr_grid="bins",
+                ruplace_write_guides=1,
+                ruplace_gr_wire_cost_sat=0,
+                ruplace_gr_via_usage_scale=1.5,
+                ruplace_gr_m1_routable=1,
+                ruplace_gr_max_route_len_per_pin=130,
+                ruplace_global_cluster_mode="mean",
+                ruplace_global_util_exponent=1.0,
+                ruplace_hv_inflate_gamma=0.0,
+                ruplace_hv_inflate_mode="max",
+                ruplace_admm_apply_freq=1,
+                ruplace_admm_weight_decay=1.0,
+                ruplace_admm_min_weight=0.0,
+                ruplace_admm_grad_clip_norm=0.0,
+                ruplace_admm_anchor_update="refresh",
+                ruplace_admm_anchor_decay=0.9,
                 ruplace_external_route_eval=1,
                 ruplace_inflate_start_overflow=1.0,
                 ruplace_max_inflate_ratio=2.0,
@@ -330,6 +399,66 @@ class RUPlaceQualityTest(unittest.TestCase):
             "rc_ver": "1.0",
             "metric_source": "fake",
         }
+
+
+class RUPlaceDriverDefaultsTest(unittest.TestCase):
+    """The driver's --ruplace-* defaults must come from dreamplace/params.json."""
+
+    def test_argparse_defaults_match_params_json(self):
+        args = ruplace_quality.parse_args([
+            "--designs", "ispd18_test1",
+            "--methods", "ruplace",
+            "--run-id", "defaults_check",
+        ])
+        mismatched = []
+        for flag, key in (
+            ("ruplace_inflate_util_threshold", "ruplace_inflate_util_threshold"),
+            ("ruplace_global_inflate_gamma", "ruplace_global_inflate_gamma"),
+            ("ruplace_global_cluster_mode", "ruplace_global_cluster_mode"),
+            ("ruplace_global_util_exponent", "ruplace_global_util_exponent"),
+            ("ruplace_inflate_area_cap", "ruplace_inflate_area_cap"),
+            ("ruplace_inflate_start_overflow", "ruplace_inflate_start_overflow"),
+            ("ruplace_local_inflate_gamma", "ruplace_local_inflate_gamma"),
+            ("ruplace_local_inflate_max_rounds", "ruplace_local_inflate_max_rounds"),
+            ("ruplace_max_inflate_ratio", "ruplace_max_inflate_ratio"),
+            ("ruplace_hv_inflate_gamma", "ruplace_hv_inflate_gamma"),
+            ("ruplace_hv_inflate_mode", "ruplace_hv_inflate_mode"),
+            ("ruplace_allow_shrink", "ruplace_allow_shrink"),
+            ("ruplace_external_route_eval", "ruplace_external_route_eval"),
+            ("ruplace_router_backend", "ruplace_router_backend"),
+            ("ruplace_gr_util_mode", "ruplace_gr_util_mode"),
+            ("ruplace_gr_grid", "ruplace_gr_grid"),
+            ("ruplace_gr_wire_cost_sat", "ruplace_gr_wire_cost_sat"),
+            ("ruplace_gr_via_usage_scale", "ruplace_gr_via_usage_scale"),
+            ("ruplace_gr_m1_routable", "ruplace_gr_m1_routable"),
+            ("ruplace_gr_max_route_len_per_pin", "ruplace_gr_max_route_len_per_pin"),
+            ("ruplace_write_guides", "ruplace_write_guides"),
+            ("ruplace_admm_start_overflow", "ruplace_admm_start_overflow"),
+            ("ruplace_admm_route_freq", "ruplace_admm_route_freq"),
+            ("ruplace_admm_apply_freq", "ruplace_admm_apply_freq"),
+            ("ruplace_admm_weight", "ruplace_admm_weight"),
+            ("ruplace_admm_anchor_weight", "ruplace_admm_anchor_weight"),
+        ):
+            got = getattr(args, flag)
+            want = ruplace_quality.params_default(key)
+            if got != want:
+                mismatched.append((flag, got, want))
+        self.assertEqual(mismatched, [])
+
+    def test_explicit_flag_overrides_params_default(self):
+        args = ruplace_quality.parse_args([
+            "--designs", "ispd18_test1",
+            "--methods", "ruplace",
+            "--run-id", "override_check",
+            "--ruplace-inflate-util-threshold", "0.8",
+            "--ruplace-global-inflate-gamma", "0.25",
+        ])
+        self.assertEqual(args.ruplace_inflate_util_threshold, 0.8)
+        self.assertEqual(args.ruplace_global_inflate_gamma, 0.25)
+
+    def test_unknown_params_key_raises(self):
+        with self.assertRaises(KeyError):
+            ruplace_quality.params_default("ruplace_not_a_real_key")
 
 
 if __name__ == "__main__":

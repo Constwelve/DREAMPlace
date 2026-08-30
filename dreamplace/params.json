@@ -240,6 +240,10 @@
     "description" : "enable RUPlace unified routability optimization",
     "default" : 0
     },
+"ruplace_preset" : {
+    "description" : "global-key preset applied when ruplace_flag is set: congestion (default) fills in the s14-calibrated non-RUPlace keys (target_density 1.0, gamma 0.92, gp_noise_ratio 0.03, stop_overflow 0.10, legalize_flag 1, 512x512 bins, one 1000-iteration nesterov global-place stage) for every key the user did not set explicitly; none disables it.  It never runs when ruplace_flag is 0, so plain DREAMPlace is unaffected",
+    "default" : "congestion"
+    },
 "ruplace_xplace_root" : {
     "description" : "path to Xplace repository used as external GPU-router adapter",
     "default" : "../Xplace"
@@ -249,7 +253,7 @@
     "default" : ""
     },
 "ruplace_router_backend" : {
-    "description" : "GPU router backend for standalone GPUGR/RUPlace; supported values are gpugr, xplace, and instantgr",
+    "description" : "GPU router backend for standalone GPUGR/RUPlace; supported values are gpugr, xplace, and instantgr; s14-calibrated default of the RUPlace congestion preset (active whenever ruplace_flag=1)",
     "default" : "gpugr"
     },
 "ruplace_instantgr_root" : {
@@ -269,51 +273,51 @@
     "default" : ""
     },
 "ruplace_gr_rrr_iters" : {
-    "description" : "GGR rip-up and reroute iterations for RUPlace route evaluations",
+    "description" : "GGR rip-up and reroute iterations for RUPlace route evaluations; s14-calibrated default of the RUPlace congestion preset (active whenever ruplace_flag=1)",
     "default" : 1
     },
 "ruplace_gr_util_mode" : {
-    "description" : "Congestion definition for the in-loop GR maps: legacy (dmd/cap, skip M1) or avail ((dmd-fixed)/(cap-fixed), the Innovus remain/total analogue)",
-    "default" : "legacy"
+    "description" : "Congestion definition for the in-loop GR maps: legacy (dmd/cap, skip M1) or avail ((dmd-fixed)/(cap-fixed), the Innovus remain/total analogue); s14-calibrated default of the RUPlace congestion preset (active whenever ruplace_flag=1)",
+    "default" : "avail"
     },
 "ruplace_gr_grid" : {
-    "description" : "GR gcell grid: bins (default, route_num_bins / DEF routing grids), def (let the router use the DEF GCELLGRID), or an explicit NxM such as 625x650",
-    "default" : "bins"
+    "description" : "GR gcell grid: bins (route_num_bins / DEF routing grids), def (let the router use the DEF GCELLGRID), step:N (N dbu per gcell), or an explicit NxM such as 625x650; s14-calibrated default of the RUPlace congestion preset (active whenever ruplace_flag=1).  TECH-DEPENDENT: step:2880 is 5 SMIC14 row heights; retune for another technology",
+    "default" : "step:2880"
     },
 "ruplace_write_guides" : {
-    "description" : "1 (default) = ask the router to write a route guide file each evaluation; 0 = skip it (route_guide=\"\")",
-    "default" : 1
-    },
-"ruplace_gr_wire_cost_sat" : {
-    "description" : "1 = saturate the pattern-router int64->int wire-cost difference at INF instead of letting it overflow (recovers the long nets that otherwise report `failed`); 0 = legacy",
+    "description" : "1 = ask the router to write a route guide file each evaluation; 0 = skip it (route_guide=\"\"); s14-calibrated default of the RUPlace congestion preset (active whenever ruplace_flag=1)",
     "default" : 0
     },
-"ruplace_gr_via_usage_scale" : {
-    "description" : "GGR via-usage scale factor (grSetting.viaUsageScale); 1.5 = the ISPD18-calibrated value, 0 disables the extra via demand",
-    "default" : 1.5
-    },
-"ruplace_gr_m1_routable" : {
-    "description" : "1 = let GGR route on M1 (grSetting.m1Routable); 0 = treat M1 as unroutable (the SMIC14 setting)",
+"ruplace_gr_wire_cost_sat" : {
+    "description" : "1 = saturate the pattern-router int64->int wire-cost difference at INF instead of letting it overflow (recovers the long nets that otherwise report `failed`); 0 = legacy; s14-calibrated default of the RUPlace congestion preset (active whenever ruplace_flag=1)",
     "default" : 1
     },
+"ruplace_gr_via_usage_scale" : {
+    "description" : "GGR via-usage scale factor (grSetting.viaUsageScale); 1.5 = the ISPD18-calibrated value, 0 disables the extra via demand; s14-calibrated default of the RUPlace congestion preset (active whenever ruplace_flag=1)",
+    "default" : 0.0
+    },
+"ruplace_gr_m1_routable" : {
+    "description" : "1 = let GGR route on M1 (grSetting.m1Routable); 0 = treat M1 as unroutable; s14-calibrated default of the RUPlace congestion preset (active whenever ruplace_flag=1).  TECH-DEPENDENT: 0 because M1 is not routable on SMIC14; use 1 on technologies whose M1 is a routing layer",
+    "default" : 0
+    },
 "ruplace_gr_max_route_len_per_pin" : {
-    "description" : "GGR maxRouteLenPerPin, the per-pin route-length budget in gcells; 130 = ISPD18 calibration, 256 for the coarser s14 grid",
-    "default" : 130
+    "description" : "GGR maxRouteLenPerPin, the per-pin route-length budget in gcells; 130 = ISPD18 calibration, 256 for the coarser s14 grid; s14-calibrated default of the RUPlace congestion preset (active whenever ruplace_flag=1)",
+    "default" : 256
     },
 "ruplace_route_gpu" : {
     "description" : "CUDA device id used by the Xplace GPU-router adapter",
     "default" : 0
     },
 "ruplace_external_route_eval" : {
-    "description" : "run Xplace GGR in a subprocess to avoid CUDA context corruption during placement",
-    "default" : 1
+    "description" : "run Xplace GGR in a subprocess to avoid CUDA context corruption during placement; s14-calibrated default of the RUPlace congestion preset (active whenever ruplace_flag=1)",
+    "default" : 0
     },
 "ruplace_inflate_start_overflow" : {
-    "description" : "density overflow threshold to start RUPlace inflation; negative uses node_area_adjust_overflow",
-    "default" : 0.2
+    "description" : "density overflow threshold to start RUPlace inflation; negative uses node_area_adjust_overflow; s14-calibrated default of the RUPlace congestion preset (active whenever ruplace_flag=1)",
+    "default" : 0.5
     },
 "ruplace_max_inflate_ratio" : {
-    "description" : "maximum cell inflation ratio used by RUPlace",
+    "description" : "maximum cell inflation ratio used by RUPlace; s14-calibrated default of the RUPlace congestion preset (active whenever ruplace_flag=1)",
     "default" : 2.0
     },
 "ruplace_min_inflate_ratio" : {
@@ -321,28 +325,28 @@
     "default" : 1.0
     },
 "ruplace_global_inflate_gamma" : {
-    "description" : "damping factor for RUPlace global clustered inflation",
-    "default" : 0.35
+    "description" : "damping factor for RUPlace global clustered inflation; s14-calibrated default of the RUPlace congestion preset (active whenever ruplace_flag=1)",
+    "default" : 0.7
     },
 "ruplace_global_cluster_mode" : {
-    "description" : "global RUPlace inflation aggregation mode: mean, max, or none",
-    "default" : "mean"
+    "description" : "global RUPlace inflation aggregation mode: mean, max, or none; s14-calibrated default of the RUPlace congestion preset (active whenever ruplace_flag=1)",
+    "default" : "none"
     },
 "ruplace_global_util_exponent" : {
-    "description" : "exponent applied to global route utilization excess before RUPlace inflation",
-    "default" : 1.0
+    "description" : "exponent applied to global route utilization excess before RUPlace inflation; s14-calibrated default of the RUPlace congestion preset (active whenever ruplace_flag=1)",
+    "default" : 0.745
     },
 "ruplace_local_inflate_gamma" : {
-    "description" : "smoothing factor for RUPlace local cell area adjustment",
-    "default" : 0.15
+    "description" : "smoothing factor for RUPlace local cell area adjustment; s14-calibrated default of the RUPlace congestion preset (active whenever ruplace_flag=1)",
+    "default" : 0.05
     },
 "ruplace_inflate_area_cap" : {
-    "description" : "maximum movable-area growth fraction per RUPlace inflation round",
-    "default" : 0.01
+    "description" : "maximum movable-area growth fraction per RUPlace inflation round; s14-calibrated default of the RUPlace congestion preset (active whenever ruplace_flag=1)",
+    "default" : 0.15
     },
 "ruplace_inflate_util_threshold" : {
-    "description" : "route utilization fraction treated as congested by RUPlace inflation; node utilization is divided by this before clamping at 1.0, so 1.0 is legacy behaviour and smaller values inflate cells in less-congested bins",
-    "default" : 1.0
+    "description" : "route utilization fraction treated as congested by RUPlace inflation; node utilization is divided by this before clamping at 1.0, so 1.0 is legacy behaviour and smaller values inflate cells in less-congested bins; s14-calibrated default of the RUPlace congestion preset (active whenever ruplace_flag=1)",
+    "default" : 0.6
     },
 "ruplace_inflate_extra_capacity" : {
     "description" : "extra movable-area budget allowed for RUPlace inflation when filler whitespace is unavailable",
@@ -361,20 +365,20 @@
     "default" : 1.0
     },
 "ruplace_hv_inflate_gamma" : {
-    "description" : "extra inflation pressure from H/V route overflow maps; 0 disables directional H/V-aware inflation",
-    "default" : 0.0
+    "description" : "extra inflation pressure from H/V route overflow maps; 0 disables directional H/V-aware inflation; s14-calibrated default of the RUPlace congestion preset (active whenever ruplace_flag=1)",
+    "default" : 0.5
     },
 "ruplace_hv_inflate_mode" : {
-    "description" : "how to combine horizontal and vertical overflow for H/V-aware inflation: max, mean, sum, h, or v",
+    "description" : "how to combine horizontal and vertical overflow for H/V-aware inflation: max, mean, sum, h, or v; s14-calibrated default of the RUPlace congestion preset (active whenever ruplace_flag=1)",
     "default" : "max"
     },
 "ruplace_local_inflate_max_rounds" : {
-    "description" : "maximum RUPlace local inflation rounds",
-    "default" : 0
+    "description" : "maximum RUPlace local inflation rounds; s14-calibrated default of the RUPlace congestion preset (active whenever ruplace_flag=1)",
+    "default" : 3
     },
 "ruplace_allow_shrink" : {
-    "description" : "allow RUPlace local adjustment to shrink over-inflated cells back toward the minimum inflation ratio",
-    "default" : 0
+    "description" : "allow RUPlace local adjustment to shrink over-inflated cells back toward the minimum inflation ratio; s14-calibrated default of the RUPlace congestion preset (active whenever ruplace_flag=1)",
+    "default" : 1
     },
 "ruplace_local_congestion_stop" : {
     "description" : "route overflow threshold to stop RUPlace local inflation",
@@ -389,20 +393,20 @@
     "default" : 0
     },
 "ruplace_admm_start_overflow" : {
-    "description" : "density overflow threshold to start RUPlace ADMM routed-wire refinement",
-    "default" : 0.2
+    "description" : "density overflow threshold to start RUPlace ADMM routed-wire refinement; s14-calibrated default of the RUPlace congestion preset (active whenever ruplace_flag=1)",
+    "default" : 0.55
     },
 "ruplace_admm_route_freq" : {
-    "description" : "placement iterations between RUPlace ADMM route refreshes",
-    "default" : 200
+    "description" : "placement iterations between RUPlace ADMM route refreshes; s14-calibrated default of the RUPlace congestion preset (active whenever ruplace_flag=1)",
+    "default" : 25
     },
 "ruplace_admm_apply_freq" : {
-    "description" : "placement iterations between applying RUPlace ADMM route gradients",
-    "default" : 1
+    "description" : "placement iterations between applying RUPlace ADMM route gradients; s14-calibrated default of the RUPlace congestion preset (active whenever ruplace_flag=1)",
+    "default" : 5
     },
 "ruplace_admm_weight" : {
-    "description" : "weight for RUPlace routed-wire ADMM gradient",
-    "default" : 1.0
+    "description" : "weight for RUPlace routed-wire ADMM gradient; s14-calibrated default of the RUPlace congestion preset (active whenever ruplace_flag=1)",
+    "default" : 0.03
     },
 "ruplace_admm_scale_mode" : {
     "description" : "routeforce scaling: absolute uses the raw ADMM coefficient; relative interprets the weight as a fraction of raw placement-gradient RMS",
@@ -425,7 +429,7 @@
     "default" : 0.0
     },
 "ruplace_admm_anchor_weight" : {
-    "description" : "anchor penalty weight for RUPlace ADMM route gradient",
+    "description" : "anchor penalty weight for RUPlace ADMM route gradient; s14-calibrated default of the RUPlace congestion preset (active whenever ruplace_flag=1)",
     "default" : 0.1
     },
 "ruplace_admm_anchor_update" : {

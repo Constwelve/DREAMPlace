@@ -1,0 +1,27 @@
+{
+  "_note": "Minimal RUPlace enablement.  routability_opt_flag + ruplace_flag are the only two switches needed: every ruplace_* knob in dreamplace/params.json already ships the s14-calibrated congestion preset, so no ruplace_* key appears below.  The remaining keys are the recommended global DREAMPlace settings for this flow (they are NOT params.json defaults, because plain DREAMPlace must keep its own behaviour).  THREE PRESET KEYS ARE TECHNOLOGY-DEPENDENT and must be retuned outside SMIC14: ruplace_gr_grid (step:2880 = 5 SMIC14 row heights), ruplace_gr_m1_routable (0 because M1 is not a routing layer on SMIC14), and ruplace_gr_max_route_len_per_pin (256 suits that coarse gcell grid; 130 is the ISPD18 calibration).  For a routability/wirelength trade-off closer to the baseline, override ruplace_inflate_util_threshold to 0.8 and ruplace_global_inflate_gamma to 0.25.  Replace lef_input/def_input with real paths before running.",
+  "lef_input": [
+    "<path/to/tech.lef>",
+    "<path/to/stdcells.lef>"
+  ],
+  "def_input": "<path/to/design.def>",
+  "routability_opt_flag": 1,
+  "ruplace_flag": 1,
+  "target_density": 1.0,
+  "gamma": 0.92,
+  "gp_noise_ratio": 0.03,
+  "stop_overflow": 0.10,
+  "legalize_flag": 1,
+  "num_bins_x": 512,
+  "num_bins_y": 512,
+  "global_place_stages": [
+    {
+      "num_bins_x": 512,
+      "num_bins_y": 512,
+      "iteration": 1000,
+      "learning_rate": 0.01,
+      "wirelength": "weighted_average",
+      "optimizer": "nesterov"
+    }
+  ]
+}
