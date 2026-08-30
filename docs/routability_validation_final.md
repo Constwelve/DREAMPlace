@@ -1,5 +1,18 @@
 # Routability Optimization Validation Report
 
+> **Historical report, superseded for the default decision.** This document
+> records the completed Poisson-focused campaign at commit `bb24016`. Its
+> recommendation was driven by the earlier selection protocol and is not the
+> final result of the active routability-first revalidation. The current
+> campaign compares HPWL, `net_weighting`, `local_gradient`, `net_overlap`, and
+> `net_weighting` + `local_gradient` with detailed OpenROAD and Innovus routes.
+> It requires horizontal/vertical congestion or overflow, detailed-route DRC,
+> shorts, unrouted/connectivity violations, routed wirelength, and vias, while
+> treating placement HPWL as diagnostic only. See
+> `docs/routability_validation_status.md`; replace this historical report only
+> after `golden_routability_ranking_3583ba6.json` passes the complete-campaign
+> and artifact-integrity gates.
+
 ## Decision scope
 
 This report ranks the ten independent routability plugins implemented on

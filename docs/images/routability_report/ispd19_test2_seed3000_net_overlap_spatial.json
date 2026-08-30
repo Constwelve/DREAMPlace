@@ -1,0 +1,123 @@
+{
+  "baseline_def": "/mnt/nvme0n1/yifan/projs/DREAMPlace/.worktrees/ruplace-routability/results/routability_completion/ispd19_test2_seed3000_net_overlap_3583ba6/campaign/data_ispd19_test2/methods/hpwl/placement/ispd19_test2.input/ispd19_test2.input.gp.def",
+  "baseline_evaluation": "/mnt/nvme0n1/yifan/projs/DREAMPlace/.worktrees/ruplace-routability/results/routability_completion/ispd19_test2_seed3000_net_overlap_3583ba6/campaign/data_ispd19_test2/methods/hpwl/evaluation",
+  "candidate_def": "/mnt/nvme0n1/yifan/projs/DREAMPlace/.worktrees/ruplace-routability/results/routability_completion/ispd19_test2_seed3000_net_overlap_3583ba6/campaign/data_ispd19_test2/methods/weak_atomic_dev_0006_rudy_net_overlap/placement/ispd19_test2.input/ispd19_test2.input.gp.def",
+  "candidate_evaluation": "/mnt/nvme0n1/yifan/projs/DREAMPlace/.worktrees/ruplace-routability/results/routability_completion/ispd19_test2_seed3000_net_overlap_3583ba6/campaign/data_ispd19_test2/methods/weak_atomic_dev_0006_rudy_net_overlap/evaluation",
+  "diearea_dbu": [
+    0,
+    0,
+    1745600,
+    1178400
+  ],
+  "displacement_dbu": {
+    "max": 1885057.2935590048,
+    "mean": 608711.0670500437,
+    "median": 560678.7672098882,
+    "moved_components": 72094,
+    "p95": 1227401.5835745044,
+    "p99": 1530413.7262485186
+  },
+  "maps": {
+    "GPUGR H overflow": {
+      "baseline": {
+        "max": 0.08391046524047852,
+        "mean": 0.00016379126464016736,
+        "min": 0.0,
+        "p99": 0.0
+      },
+      "candidate": {
+        "max": 0.06917548179626465,
+        "mean": 0.00014832924352958798,
+        "min": 0.0,
+        "p99": 0.0
+      },
+      "delta": {
+        "max": 0.06917548179626465,
+        "mean": -1.546202111057937e-05,
+        "min": -0.08391046524047852,
+        "p99": 0.0
+      }
+    },
+    "GPUGR V overflow": {
+      "baseline": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "p99": 0.0
+      },
+      "candidate": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "p99": 0.0
+      },
+      "delta": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "p99": 0.0
+      }
+    },
+    "GPUGR utilization": {
+      "baseline": {
+        "max": 0.9405816197395325,
+        "mean": 0.5183327198028564,
+        "min": 0.0,
+        "p99": 0.8504413962364197
+      },
+      "candidate": {
+        "max": 0.935157299041748,
+        "mean": 0.5051660537719727,
+        "min": 0.0,
+        "p99": 0.848901093006134
+      },
+      "delta": {
+        "max": 0.781331479549408,
+        "mean": -0.013166731223464012,
+        "min": -0.8405545949935913,
+        "p99": 0.7200536131858826
+      }
+    },
+    "Placement density (log1p count)": {
+      "baseline": {
+        "max": 2.3025850929940455,
+        "mean": 0.5135703916390902,
+        "min": 0.0,
+        "p99": 1.791759469228055
+      },
+      "candidate": {
+        "max": 2.3025850929940455,
+        "mean": 0.5157635758796248,
+        "min": 0.0,
+        "p99": 1.8919574111159971
+      },
+      "delta": {
+        "max": 2.3025850929940455,
+        "mean": 0.0021931842405345653,
+        "min": -2.3025850929940455,
+        "p99": 1.791759469228055
+      }
+    },
+    "RUDY utilization": {
+      "baseline": {
+        "max": 1.9556937217712402,
+        "mean": 0.49455195665359497,
+        "min": 0.00030341342790052295,
+        "p99": 1.5341076505184175
+      },
+      "candidate": {
+        "max": 1.8928903341293335,
+        "mean": 0.46123847365379333,
+        "min": 0.00030341342790052295,
+        "p99": 1.5744884121418004
+      },
+      "delta": {
+        "max": 1.8335379362106323,
+        "mean": -0.033313408493995667,
+        "min": -1.751957893371582,
+        "p99": 1.5154837298393253
+      }
+    }
+  },
+  "matched_components": 72094
+}
