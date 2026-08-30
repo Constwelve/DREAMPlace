@@ -17,14 +17,9 @@ install
 .DS_Store
 .vscode/*
 .worktrees/
-configs/ruplace_taiwei_2d_netlists/
 
-# Benchmark payloads are private: nothing under data/ is shipped except the
-# 15-line SMIC14 site-alias LEF that tools/ruplace_s14_prep.py depends on.
-data/*
-!data/s14/
-data/s14/*
-!data/s14/s14_extra_sites.lef
+# Benchmark payloads and staged designs are private; nothing under data/ is shipped.
+data/
 
 # NOTE: thirdparty/XplaceGPUGR is a vendored fork whose sources include prebuilt
 # lefdef/lemon archives under lib/ and *.a; they were added with `git add -f` and

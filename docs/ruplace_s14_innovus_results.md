@@ -1,12 +1,12 @@
 # RUPlace on SMIC14, judged by Innovus early global route
 
 Result document for the `feat/ruplace-s14-innovus` branch. Every number below is a measured
-value from the v110-v119 campaign; the campaign drivers are committed at the repo root as
-`run_ruplace_v11*.sh`.
+value from the v110-v119 campaign; the campaign drivers are committed as
+`test/ruplace/campaigns/run_ruplace_v11*.sh`.
 
 **Benchmark data is private.** The SMIC14 cases live outside this repository
 (`~/data/benchmarks/s14/<case>/`) and their staged copies under `data/s14/` are not tracked.
-The only shipped file from that tree is `data/s14/s14_extra_sites.lef`, a 15-line site alias.
+The only shipped file from that tree is `test/ruplace/s14_extra_sites.lef`, a 15-line site alias.
 Nothing here is reproducible on public data.
 
 ## 1. Protocol
@@ -20,7 +20,7 @@ Nothing here is reproducible on public data.
   floorplan, PG routed, standard cells unplaced. `tools/ruplace_s14_prep.py` decompresses the
   DEF, rewrites COMPONENTS so the macros are FIXED (they ship as `+ PLACED`, which would make
   it a mixed-size run) and emits the params and meta JSON.
-- **Placement.** `tools/ruplace_quality.py --case-manifest configs/ruplace_s14_cases.json`,
+- **Placement.** `tools/ruplace_quality.py --case-manifest test/ruplace/s14_cases.json`,
   `target_density 1.0`, 1000-iteration cap, seeds 1001 and 1002.
 - **Legalized DEFs.** All scored placements use `--legalize-flag 1`. DREAMPlace writes one
   solution DEF: `Placer.py` emits `<design>.gp.def` after `NonLinearPlace.__call__` has already
@@ -249,7 +249,7 @@ Both recommendations share the same base. The order matters: `config_flags` is e
 argparse takes the override.
 
 ```bash
-common=(--case-manifest configs/ruplace_s14_cases.json --iterations 1000 --gpu 0 --num-threads 16 \
+common=(--case-manifest test/ruplace/s14_cases.json --iterations 1000 --gpu 0 --num-threads 16 \
         --learning-rate 0.010 --xplace-root "$XPLACE_ROOT" --ruplace-router-backend gpugr \
         --ruplace-global-cluster-mode none --eval-route-rrr-iters 1 --ruplace-external-route-eval 0 \
         --ruplace-allow-shrink 1 --legalize-flag 1 --continue-on-error)
@@ -348,7 +348,7 @@ flag reproduces the `thr06_g070` config byte for byte apart from `random_seed`,
 ```bash
 git clone -b feat/ruplace-s14-innovus <repo> repro_clone
 cd repro_clone && git submodule update --init
-# build per README_RUPLACE.md "Build": cmake with gcc-9/g++-9, CUDA 11.8,
+# build per docs/RUPLACE.md "Build": cmake with gcc-9/g++-9, CUDA 11.8,
 # CMAKE_CUDA_ARCHITECTURES=7.5, CMAKE_CXX_ABI=0, then make -j16 && make install
 
 # minimal config: LEF/DEF + result_dir + gpu/num_threads/random_seed + the two switches
@@ -380,8 +380,8 @@ python tools/ruplace_s14_prep.py --case nvdla_s_s14      # or --all
 # 2. Run a batch. The v119 driver is the most recent shape: work items are
 #    case:config:seed, two placement workers, Innovus scoring drained by a
 #    bounded background queue, resumable.
-bash run_ruplace_v119_s14_band_local.sh
-ITEMS="regression_s14:thr08_g025:1001" bash run_ruplace_v119_s14_band_local.sh   # subset
+bash test/ruplace/campaigns/run_ruplace_v119_s14_band_local.sh
+ITEMS="regression_s14:thr08_g025:1001" bash test/ruplace/campaigns/run_ruplace_v119_s14_band_local.sh   # subset
 
 # 3. Score any single DEF with Innovus EGR (one CSV line on stdout).
 tools/ruplace_s14_innovus_eval.sh nvdla_s_s14 <placed.def> <out_dir> global
@@ -396,7 +396,7 @@ Two environment rules the drivers encode and that a hand-run must repeat:
   directory. Those shadow the bundled `libxplace_common.so` and segfault the in-loop router in
   `GRDatabase::addMovObs`.
 
-Build with the cmake invocation in README_RUPLACE.md (CUDA 11.8, gcc-9,
+Build with the cmake invocation in docs/RUPLACE.md (CUDA 11.8, gcc-9,
 `CMAKE_CUDA_ARCHITECTURES 7.5`, `CMAKE_CXX_ABI 0`).
 Configure prints three "XplaceGPUGR ... already present" lines: the vendored router in
 `thirdparty/XplaceGPUGR` already carries the patches in `cmake/`, and CMake verifies rather

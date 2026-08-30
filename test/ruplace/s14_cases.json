@@ -1,0 +1,81 @@
+{
+  "description": "SMIC14 (s14) cases that pass Gate A/B/C: DEF+Verilog present, Innovus init_design+defIn OK, DREAMPlace place_io OK. See CLAUDE.md.",
+  "cases": [
+    {
+      "name": "nvdla_s_s14",
+      "design_name": "NV_nvdla",
+      "benchmark": "s14",
+      "tech": "smic14",
+      "source": "s14_innovus_floorplan",
+      "lef_input": [
+        "/home/yifan/data/benchmarks/s14/nvdla_s_s14/lef_lib/pdk/1P8M_DV_3DM_Q1_3Q2_TMa_ALPA1.lef",
+        "s14_extra_sites.lef",
+        "/home/yifan/data/benchmarks/s14/nvdla_s_s14/lef_lib/all_lef/scc14nsfp_90sdb_9tc16_rvt_ant.lef",
+        "/home/yifan/data/benchmarks/s14/nvdla_s_s14/SARM2_new.lef"
+      ],
+      "def_input": "/mnt/nvme0n1/yifan/projs/DREAMPlace/data/s14/nvdla_s_s14/NV_nvdla_s.fixedmacro.def",
+      "dreamplace_verilog_input": false,
+      "eval_verilog_input": "/home/yifan/data/benchmarks/s14/nvdla_s_s14/NV_nvdla_s.v",
+      "enabled": true,
+      "placement_enabled": true,
+      "notes": "SMIC14 Innovus floorplan DEF; macros forced FIXED by tools/ruplace_s14_prep.py; Verilog is for the Innovus evaluator only (DEF carries NETS)."
+    },
+    {
+      "name": "regression_s14",
+      "design_name": "ct_top",
+      "benchmark": "s14",
+      "tech": "smic14",
+      "source": "s14_innovus_floorplan",
+      "lef_input": [
+        "/home/yifan/data/benchmarks/s14/regression_s14/lef_lib/pdk/1P8M_DV_3DM_Q1_3Q2_TMa_ALPA1.lef",
+        "s14_extra_sites.lef",
+        "/home/yifan/data/benchmarks/s14/regression_s14/lef_lib/all_lef/scc14nsfp_90sdb_9tc16_rvt_ant.lef",
+        "/home/yifan/data/benchmarks/s14/regression_s14/SARM2_new.lef"
+      ],
+      "def_input": "/mnt/nvme0n1/yifan/projs/DREAMPlace/data/s14/regression_s14/ct_top.fixedmacro.def",
+      "dreamplace_verilog_input": false,
+      "eval_verilog_input": "/home/yifan/data/benchmarks/s14/regression_s14/ct_top.v",
+      "enabled": true,
+      "placement_enabled": true,
+      "notes": "SMIC14 Innovus floorplan DEF; macros forced FIXED by tools/ruplace_s14_prep.py; Verilog is for the Innovus evaluator only (DEF carries NETS)."
+    },
+    {
+      "name": "vortex_l_s14",
+      "design_name": "Vortex",
+      "benchmark": "s14",
+      "tech": "smic14",
+      "source": "s14_innovus_floorplan",
+      "lef_input": [
+        "/home/yifan/data/benchmarks/s14/vortex_l_s14/lef_lib/pdk/1P8M_DV_3DM_Q1_3Q2_TMa_ALPA1.lef",
+        "s14_extra_sites.lef",
+        "/home/yifan/data/benchmarks/s14/vortex_l_s14/lef_lib/all_lef/scc14nsfp_90sdb_9tc16_rvt_ant.lef",
+        "/home/yifan/data/benchmarks/s14/vortex_l_s14/SARM2_new.lef"
+      ],
+      "def_input": "/mnt/nvme0n1/yifan/projs/DREAMPlace/data/s14/vortex_l_s14/Vortex_l.fixedmacro.def",
+      "dreamplace_verilog_input": false,
+      "eval_verilog_input": "/home/yifan/data/benchmarks/s14/vortex_l_s14/Vortex_l.v",
+      "enabled": true,
+      "placement_enabled": true,
+      "notes": "SMIC14 Innovus floorplan DEF; macros forced FIXED by tools/ruplace_s14_prep.py; Verilog is for the Innovus evaluator only (DEF carries NETS)."
+    },
+    {
+      "name": "nvdla_l_s14",
+      "design_name": "NV_nvdla",
+      "benchmark": "s14",
+      "tech": "smic14",
+      "source": "s14_innovus_floorplan",
+      "lef_input": [
+        "/home/yifan/data/benchmarks/s14/nvdla_l_s14/lef_lib/pdk/1P8M_DV_3DM_Q1_3Q2_TMa_ALPA1.lef",
+        "s14_extra_sites.lef",
+        "/home/yifan/data/benchmarks/s14/nvdla_l_s14/lef_lib/all_lef/scc14nsfp_90sdb_9tc16_rvt_ant.lef",
+        "/home/yifan/data/benchmarks/s14/nvdla_l_s14/SARM2_new.lef"
+      ],
+      "def_input": "/mnt/nvme0n1/yifan/projs/DREAMPlace/data/s14/nvdla_l_s14/NV_nvdla_l.fixedmacro.def",
+      "dreamplace_verilog_input": false,
+      "eval_verilog_input": "/home/yifan/data/benchmarks/s14/nvdla_l_s14/NV_nvdla_l.v",
+      "enabled": true,
+      "placement_enabled": true,
+      "notes": "SMIC14 Innovus floorplan DEF; macros forced FIXED by tools/ruplace_s14_prep.py; Verilog is for the Innovus evaluator only (DEF carries NETS)."
+    }
+  ]
+}

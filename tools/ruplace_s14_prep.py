@@ -26,10 +26,15 @@ import re
 import shutil
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[1]
-SRC_ROOT = Path(os.path.expanduser("~/data/benchmarks/s14"))
-OUT_ROOT = REPO / "data" / "s14"
-SITE_ALIAS_LEF = OUT_ROOT / "s14_extra_sites.lef"
+# Machine-specific roots, all env-overridable so the script is not tied to one host:
+#   RUPLACE_REPO      repo root                (default: the repo this script lives in)
+#   RUPLACE_S14_SRC   read-only shipped cases  (default: ~/data/benchmarks/s14)
+#   RUPLACE_S14_OUT   staging output root      (default: <repo>/data/s14)
+REPO = Path(os.environ.get("RUPLACE_REPO") or Path(__file__).resolve().parents[1])
+SRC_ROOT = Path(os.environ.get("RUPLACE_S14_SRC") or os.path.expanduser("~/data/benchmarks/s14"))
+OUT_ROOT = Path(os.environ.get("RUPLACE_S14_OUT") or (REPO / "data" / "s14"))
+# Shipped with the repo (15-line SMIC14 site alias), next to the s14 case manifest.
+SITE_ALIAS_LEF = Path(__file__).resolve().parents[1] / "test" / "ruplace" / "s14_extra_sites.lef"
 
 # Gate A: the Innovus evaluator refuses a case without a Verilog netlist, so only these
 # four of the eight shipped cases can be scored by Innovus.

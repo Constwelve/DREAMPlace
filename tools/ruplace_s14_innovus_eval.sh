@@ -6,8 +6,11 @@
 #   case,def,status,wirelength,horizontal_overflow,vertical_overflow,vias,runtime_sec
 set -uo pipefail
 case_name="${1:?case}"; placed_def="${2:?placed def}"; out_dir="${3:?output dir}"; mode="${4:-global}"
+# Machine-specific root, env-overridable:
+#   REPO  checkout that holds the staged s14 data (data/s14/<case>.meta.json, data/s14/innovus_stage),
+#         i.e. the one tools/ruplace_s14_prep.py staged into -- not necessarily this worktree.
 WT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-REPO=/mnt/nvme0n1/yifan/projs/DREAMPlace
+REPO="${REPO:-/mnt/nvme0n1/yifan/projs/DREAMPlace}"
 meta="$REPO/data/s14/${case_name}.meta.json"
 [[ -f "$meta" ]] || { echo "missing $meta (run tools/ruplace_s14_prep.py --case $case_name)" >&2; exit 2; }
 stage="$REPO/data/s14/innovus_stage"; mkdir -p "$stage" "$out_dir"

@@ -18,7 +18,9 @@
 
 set -euo pipefail
 
-IMAGE="rockylinux-xfce:8.10"
+# Machine-specific settings, all env-overridable: CADENCE_IMAGE, plus the host
+# install roots and repo mount defined a few lines below.
+IMAGE="${CADENCE_IMAGE:-rockylinux-xfce:8.10}"
 VER="22"
 WANT_GUI="0"
 
@@ -41,10 +43,11 @@ if [[ -z "$TOOL" ]]; then
 fi
 
 # ---- host paths (edit here if installs move) ----
-EDA_EXPORT_HOST="/mnt/nvme0n1/yifan/projs/EDASoftware/export"   # -> /export (v21 tools + license.dat)
-DDI22_HOST="/mnt/nvme0n1/yifan/projs/EDASoftware/DDI22.10.000"
-DDI25_HOST="/mnt/nvme0n1/yifan/projs/EDASoftware/cadence/DDI/2025.10.000"
-REPO="/mnt/nvme0n1/yifan/projs/DREAMPlace"   # mounted rw so runs stage inside this repo
+# Host install roots and the repo mount; override any of them in the environment.
+EDA_EXPORT_HOST="${EDA_EXPORT_HOST:-/mnt/nvme0n1/yifan/projs/EDASoftware/export}"   # -> /export (v21 tools + license.dat)
+DDI22_HOST="${DDI22_HOST:-/mnt/nvme0n1/yifan/projs/EDASoftware/DDI22.10.000}"
+DDI25_HOST="${DDI25_HOST:-/mnt/nvme0n1/yifan/projs/EDASoftware/cadence/DDI/2025.10.000}"
+REPO="${REPO:-/mnt/nvme0n1/yifan/projs/DREAMPlace}"   # mounted rw so runs stage inside this repo
 LIC="/export/SoftWare/Cadence/license/license.dat"
 
 # ---- per-version tool root + binary ----

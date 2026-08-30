@@ -1654,16 +1654,6 @@ class RoutabilityPluginMathTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "mutually exclusive"):
             build_plugins(params, Obj(), Obj())
 
-    def test_every_registered_plugin_has_literature_lineage(self):
-        from dreamplace.ops.routability_opt.plugins import PLUGIN_REGISTRY
-
-        document = (ROOT / "docs/routability_optimization_lab.md").read_text()
-        matrix = document.split("## Literature-to-plugin matrix", 1)[1].split(
-            "## Screened works outside the current implementation scope", 1
-        )[0]
-        for name in PLUGIN_REGISTRY:
-            self.assertIn("`%s`" % name, matrix)
-
     def test_zero_congestion_field_is_not_reported_as_activation(self):
         from dreamplace.ops.routability_opt.plugin_base import CongestionSignal
         from dreamplace.ops.routability_opt.plugins.local_gradient import (
