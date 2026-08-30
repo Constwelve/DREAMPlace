@@ -189,6 +189,11 @@ Bands: nvdla_s WL <= 4,605,245; regression_s14 WL <= 11,389,336.
 | nvdla_s_s14 | `thr06_g070` | 4,602,377 | +1.9% | 25,844 (-42%) | 12,660 (-36%) |
 | regression_s14 | `thr08_g025` | 11,329,420 | +1.5% | 412,732 (-20%) | 214,850 (-23%) |
 
+Each column is the **per-metric worst seed**, not one run: on regression_s14 the WL figure is
+seed 1001 (11,329,420 vs 11,329,094) while the H and V figures are seed 1002 (412,732 and
+214,850 vs 392,096 and 206,588). The percentages are against the per-metric worst seed of
+`dp_hpwl` on the same design. The nvdla_s row happens to be a single run (seed 1001).
+
 If +2.3% is acceptable on nvdla_s, `r3_thr06_g070` gives H -46% / V -44%.
 
 ### Overall result
