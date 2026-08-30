@@ -267,6 +267,36 @@ cd <installation directory>
 python unittest/ops/hpwl_unittest.py
 ```
 
+# RUPlace: Routability-Driven Placement
+
+This fork adds **RUPlace**, a routability-driven mode for global placement. A bundled GPU
+global router (a patched fork of Xplace GPUGR, built automatically) routes the design every few
+iterations; its congestion map drives cell inflation and a routing-aware gradient, so the placer
+spreads cells where routing resources are actually scarce instead of where density is high.
+
+Turn it on with two keys in the JSON configuration - all other parameters default to a
+calibrated preset:
+
+```json
+{
+  "lef_input": ["tech.lef", "stdcells.lef"],
+  "def_input": "design.def",
+  "routability_opt_flag": 1,
+  "ruplace_flag": 1
+}
+```
+
+```bash
+cd install
+python dreamplace/Placer.py ../test/ruplace/s14_congestion_example.json
+```
+
+On two SMIC14 designs evaluated with Cadence Innovus global routing, the default preset lowers
+horizontal/vertical routing overflow by 20-45% for about +2% routed wirelength relative to plain
+DREAMPlace. See [README_RUPLACE.md](README_RUPLACE.md) for the build flags, presets, the
+technology-dependent keys, and the reproduction recipe. Plain DREAMPlace behaviour is unchanged
+when `ruplace_flag` is 0.
+
 # Configurations
 
 Descriptions of options in JSON configuration file can be found by running the following command.

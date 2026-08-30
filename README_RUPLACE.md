@@ -1,8 +1,21 @@
-# RUPlace GPUGR Integration
+# RUPlace: Routability-Driven Global Placement
 
-This branch integrates RUPlace routability optimization with a bundled
-GPUGR-only fork of Xplace. The submodule lives at `thirdparty/XplaceGPUGR`
-and is built by DREAMPlace when `RUPLACE_ENABLE_GPUGR=ON` (default).
+**What it is.** RUPlace makes DREAMPlace's global placement routability-aware. A bundled GPU
+global router (`thirdparty/XplaceGPUGR`, a patched Xplace GPUGR fork built when
+`RUPLACE_ENABLE_GPUGR=ON`, the default) routes the current placement every few iterations. Its
+per-gcell utilization map, calibrated against Cadence Innovus early global route, drives two
+mechanisms: **threshold inflation** (cells in bins above a utilization threshold are grown, so
+density spreading moves them out of routing-scarce regions) and an **ADMM routing gradient**.
+
+**How to use it.** Set `routability_opt_flag: 1` and `ruplace_flag: 1`; everything else
+defaults to the calibrated *congestion* preset (see "Run RUPlace"). For a smaller wirelength
+cost use the *balanced* overrides. Three keys are technology-dependent and listed below.
+
+**What to expect.** On SMIC14 designs judged by Innovus global route, the congestion preset
+gives roughly -40% H / -35% V routing overflow on a 270k-cell design and -20% / -23% on a
+735k-cell design, for about +2% routed wirelength versus plain DREAMPlace; the balanced preset
+about half the congestion gain for about +1.5% wirelength. Runs are 3-5x slower than plain
+global placement because of the in-loop routing.
 
 ## Build
 
@@ -101,7 +114,7 @@ From a fresh clone, with the s14 case staged under `data/s14/` (see
 `tools/ruplace_s14_prep.py`):
 
 ```bash
-git clone -b feat/ruplace-s14-innovus <repo> repro_clone
+git clone -b feat/ruplace <repo> repro_clone
 cd repro_clone
 git submodule update --init
 # then the Build section's cmake + make -j16 + make install
