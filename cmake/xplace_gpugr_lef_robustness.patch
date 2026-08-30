@@ -1,0 +1,62 @@
+--- a/cpp_to_py/common/io/file_lefdef_db.cpp
++++ b/cpp_to_py/common/io/file_lefdef_db.cpp
+@@ -1,3 +1,4 @@
++#include <set>
+ #include <fstream>
+ #include <iomanip>
+ #include <iostream>
+@@ -1027,11 +1028,13 @@
+             layer = db->getLayer(layername);
+         } else if (geom->lefiGeometries::itemType(i) == lefiGeomRectE && layer != NULL) {
+             lefiGeomRect* rect = geom->lefiGeometries::getRect(i);
++            // Some vendor LEFs write RECT corners in reverse order; normalize so
++            // downstream box math never sees a negative span.
+             celltype->addObs(*layer,
+-                             lround(rect->xl * convertFactor),
+-                             lround(rect->yl * convertFactor),
+-                             lround(rect->xh * convertFactor),
+-                             lround(rect->yh * convertFactor));
++                             lround(std::min(rect->xl, rect->xh) * convertFactor),
++                             lround(std::min(rect->yl, rect->yh) * convertFactor),
++                             lround(std::max(rect->xl, rect->xh) * convertFactor),
++                             lround(std::max(rect->yl, rect->yh) * convertFactor));
+         }
+     }
+     return 0;
+@@ -1121,19 +1124,29 @@
+             case lefiGeomUnknown:
+                 logger.warning("lefiGeomUnknown: %s.%s", celltype->name.c_str(), name.c_str());
+                 break;
+-            case lefiGeomLayerE:
+-                layer = db->getLayer(string(geom->getLayer(i)));
+-                assert(layer);
++            case lefiGeomLayerE: {
++                const string layername(geom->getLayer(i));
++                layer = db->getLayer(layername);
++                if (!layer) {
++                    static std::set<string> warned;
++                    if (warned.insert(layername).second) {
++                        logger.warning("pin shapes on layer %s are ignored (not a routing/cut layer)",
++                                       layername.c_str());
++                    }
++                }
+                 break;
++            }
+             case lefiGeomRectE:
++                if (!layer) break;
+                 rect = geom->getRect(i);
+                 pintype->addShape(*layer,
+-                                  lround(rect->xl * convertFactor),
+-                                  lround(rect->yl * convertFactor),
+-                                  lround(rect->xh * convertFactor),
+-                                  lround(rect->yh * convertFactor));
++                                  lround(std::min(rect->xl, rect->xh) * convertFactor),
++                                  lround(std::min(rect->yl, rect->yh) * convertFactor),
++                                  lround(std::max(rect->xl, rect->xh) * convertFactor),
++                                  lround(std::max(rect->yl, rect->yh) * convertFactor));
+                 break;
+             case lefiGeomPolygonE:
++                if (!layer) break;
+                 polygon = geom->getPolygon(i);
+                 poly.clear();
+                 bj = 0;

@@ -172,6 +172,93 @@ if(RUPLACE_ENABLE_GPUGR)
   if(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/XplaceGPUGR/CMakeLists.txt)
     message(FATAL_ERROR "thirdparty/XplaceGPUGR is missing; run git submodule update --init --recursive")
   endif()
+  find_package(Git REQUIRED)
+  set(_xplace_gpugr_patch ${CMAKE_CURRENT_SOURCE_DIR}/cmake/xplace_gpugr_negative_span.patch)
+  execute_process(
+    COMMAND ${GIT_EXECUTABLE} apply --check --directory=thirdparty/XplaceGPUGR ${_xplace_gpugr_patch}
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    RESULT_VARIABLE _xplace_gpugr_patch_applicable
+    OUTPUT_QUIET ERROR_QUIET
+  )
+  if(_xplace_gpugr_patch_applicable EQUAL 0)
+    execute_process(
+      COMMAND ${GIT_EXECUTABLE} apply --directory=thirdparty/XplaceGPUGR ${_xplace_gpugr_patch}
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+      COMMAND_ERROR_IS_FATAL ANY
+    )
+    message(STATUS "Applied XplaceGPUGR signed-span routeforce fix")
+  else()
+    execute_process(
+      COMMAND ${GIT_EXECUTABLE} apply --reverse --check --directory=thirdparty/XplaceGPUGR ${_xplace_gpugr_patch}
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+      RESULT_VARIABLE _xplace_gpugr_patch_present
+      OUTPUT_QUIET ERROR_QUIET
+    )
+    if(NOT _xplace_gpugr_patch_present EQUAL 0)
+      message(FATAL_ERROR "XplaceGPUGR source does not match the required signed-span routeforce patch")
+    endif()
+    message(STATUS "XplaceGPUGR signed-span routeforce fix already present")
+  endif()
+  # Second fork patch: LEF reader robustness (null layer on non-routing pin shapes, reversed RECT
+  # corners). Needed for SMIC14 libraries; same apply-or-verify logic as the signed-span patch.
+  set(_xplace_gpugr_lef_patch ${CMAKE_CURRENT_SOURCE_DIR}/cmake/xplace_gpugr_lef_robustness.patch)
+  execute_process(
+    COMMAND ${GIT_EXECUTABLE} apply --check --directory=thirdparty/XplaceGPUGR ${_xplace_gpugr_lef_patch}
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    RESULT_VARIABLE _xplace_gpugr_lef_patch_applicable
+    OUTPUT_QUIET ERROR_QUIET
+  )
+  if(_xplace_gpugr_lef_patch_applicable EQUAL 0)
+    execute_process(
+      COMMAND ${GIT_EXECUTABLE} apply --directory=thirdparty/XplaceGPUGR ${_xplace_gpugr_lef_patch}
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+      COMMAND_ERROR_IS_FATAL ANY
+    )
+    message(STATUS "Applied XplaceGPUGR LEF robustness fix")
+  else()
+    execute_process(
+      COMMAND ${GIT_EXECUTABLE} apply --reverse --check --directory=thirdparty/XplaceGPUGR ${_xplace_gpugr_lef_patch}
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+      RESULT_VARIABLE _xplace_gpugr_lef_patch_present
+      OUTPUT_QUIET ERROR_QUIET
+    )
+    if(NOT _xplace_gpugr_lef_patch_present EQUAL 0)
+      message(FATAL_ERROR "XplaceGPUGR source does not match the required LEF robustness patch")
+    endif()
+    message(STATUS "XplaceGPUGR LEF robustness fix already present")
+  endif()
+  # Third fork patch: SMIC14 GR fidelity batch 1 -- real CUDA streams in the maze router,
+  # per-layer capacity reporting, an inferred preferred direction for ROUTING layers with no
+  # LEF DIRECTION, all-orientation cell obstacles, failed-net diagnostics, a fixed_map
+  # binding, and the load_gr_params knobs max_route_len_per_pin / m1_routable /
+  # via_usage_scale (defaults reproduce legacy behaviour).  Applies on top of the two patches
+  # above; same apply-or-verify logic.
+  set(_xplace_gpugr_s14_patch ${CMAKE_CURRENT_SOURCE_DIR}/cmake/xplace_gpugr_s14_fidelity.patch)
+  execute_process(
+    COMMAND ${GIT_EXECUTABLE} apply --check --directory=thirdparty/XplaceGPUGR ${_xplace_gpugr_s14_patch}
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    RESULT_VARIABLE _xplace_gpugr_s14_patch_applicable
+    OUTPUT_QUIET ERROR_QUIET
+  )
+  if(_xplace_gpugr_s14_patch_applicable EQUAL 0)
+    execute_process(
+      COMMAND ${GIT_EXECUTABLE} apply --directory=thirdparty/XplaceGPUGR ${_xplace_gpugr_s14_patch}
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+      COMMAND_ERROR_IS_FATAL ANY
+    )
+    message(STATUS "Applied XplaceGPUGR SMIC14 GR fidelity fix")
+  else()
+    execute_process(
+      COMMAND ${GIT_EXECUTABLE} apply --reverse --check --directory=thirdparty/XplaceGPUGR ${_xplace_gpugr_s14_patch}
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+      RESULT_VARIABLE _xplace_gpugr_s14_patch_present
+      OUTPUT_QUIET ERROR_QUIET
+    )
+    if(NOT _xplace_gpugr_s14_patch_present EQUAL 0)
+      message(FATAL_ERROR "XplaceGPUGR source does not match the required SMIC14 GR fidelity patch")
+    endif()
+    message(STATUS "XplaceGPUGR SMIC14 GR fidelity fix already present")
+  endif()
   set(CMAKE_CUDA_ARCHITECTURES ${RUPLACE_GPUGR_CUDA_ARCHITECTURES} CACHE STRING "CUDA architectures" FORCE)
   enable_language(CUDA)
   set(XPLACE_BUILD_GPUGR_ONLY ON CACHE BOOL "Build only the GPUGR/IOParser backend needed by RUPlace" FORCE)

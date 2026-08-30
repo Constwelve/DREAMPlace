@@ -1,0 +1,220 @@
+--- a/cpp_to_py/gpugr/PyBindCppMain.cpp
++++ b/cpp_to_py/gpugr/PyBindCppMain.cpp
+@@ -60,6 +60,7 @@
+         .def("dmd_map", &gr::RouteForce::getDemandMap, py::return_value_policy::move)
+         .def("cap_map", &gr::RouteForce::getCapacityMap, py::return_value_policy::move)
+         .def("route_grad", &gr::RouteForce::calcRouteGrad, py::return_value_policy::move)
++        .def("route_grad_reduce", &gr::RouteForce::calcRouteGradReduce, py::return_value_policy::move)
+         .def("admm_route_grad", &gr::RouteForce::calcAdmmRouteGrad, py::return_value_policy::move)
+         .def("filler_route_grad", &gr::RouteForce::calcFillerRouteGrad, py::return_value_policy::move)
+         .def("pseudo_grad", &gr::RouteForce::calcPseudoPinGrad, py::return_value_policy::move)
+--- a/cpp_to_py/gpugr/gr/GPURouter.h
++++ b/cpp_to_py/gpugr/gr/GPURouter.h
+@@ -50,6 +50,20 @@
+                                 float unit_wire_cost,
+                                 float unit_via_cost,
+                                 int num_nodes);
++    torch::Tensor calcRouteGradReduce(torch::Tensor mask_map,
++                                      torch::Tensor wire_dmd_map_2d,
++                                      torch::Tensor via_dmd_map_2d,
++                                      torch::Tensor cap_map_2d,
++                                      torch::Tensor dist_weights,
++                                      torch::Tensor wirelength_weights,
++                                      torch::Tensor route_gradmat,
++                                      torch::Tensor node2pin_list,
++                                      torch::Tensor node2pin_list_end,
++                                      float grad_weight,
++                                      float unit_wire_cost,
++                                      float unit_via_cost,
++                                      int num_nodes,
++                                      int segment_reduce_mode);
+     torch::Tensor calcAdmmRouteGrad(torch::Tensor overflow_map,
+                                     torch::Tensor dist_weights,
+                                     torch::Tensor wirelength_weights,
+--- a/cpp_to_py/gpugr/gr/RouteForce.h
++++ b/cpp_to_py/gpugr/gr/RouteForce.h
+@@ -29,6 +29,20 @@
+                                 float unit_wire_cost,
+                                 float unit_via_cost,
+                                 int num_nodes);
++    torch::Tensor calcRouteGradReduce(torch::Tensor mask_map,
++                                      torch::Tensor wire_dmd_map_2d,
++                                      torch::Tensor via_dmd_map_2d,
++                                      torch::Tensor cap_map_2d,
++                                      torch::Tensor dist_weights,
++                                      torch::Tensor wirelength_weights,
++                                      torch::Tensor route_gradmat,
++                                      torch::Tensor node2pin_list,
++                                      torch::Tensor node2pin_list_end,
++                                      float grad_weight,
++                                      float unit_wire_cost,
++                                      float unit_via_cost,
++                                      int num_nodes,
++                                      int segment_reduce_mode);
+     torch::Tensor calcAdmmRouteGrad(torch::Tensor overflow_map,
+                                     torch::Tensor dist_weights,
+                                     torch::Tensor wirelength_weights,
+--- a/cpp_to_py/gpugr/gr/RouteForce.cpp
++++ b/cpp_to_py/gpugr/gr/RouteForce.cpp
+@@ -101,6 +101,36 @@
+                                 num_nodes);
+ };
+ 
++torch::Tensor RouteForce::calcRouteGradReduce(torch::Tensor mask_map,
++                                              torch::Tensor wire_dmd_map_2d,
++                                              torch::Tensor via_dmd_map_2d,
++                                              torch::Tensor cap_map_2d,
++                                              torch::Tensor dist_weights,
++                                              torch::Tensor wirelength_weights,
++                                              torch::Tensor route_gradmat,
++                                              torch::Tensor node2pin_list,
++                                              torch::Tensor node2pin_list_end,
++                                              float grad_weight,
++                                              float unit_wire_cost,
++                                              float unit_via_cost,
++                                              int num_nodes,
++                                              int segment_reduce_mode) {
++    return router.calcRouteGradReduce(mask_map,
++                                      wire_dmd_map_2d,
++                                      via_dmd_map_2d,
++                                      cap_map_2d,
++                                      dist_weights,
++                                      wirelength_weights,
++                                      route_gradmat,
++                                      node2pin_list,
++                                      node2pin_list_end,
++                                      grad_weight,
++                                      unit_wire_cost,
++                                      unit_via_cost,
++                                      num_nodes,
++                                      segment_reduce_mode);
++};
++
+ torch::Tensor RouteForce::calcAdmmRouteGrad(torch::Tensor overflow_map,
+                                             torch::Tensor dist_weights,
+                                             torch::Tensor wirelength_weights,
+--- a/cpp_to_py/gpugr/gr/GPURouterTorch.cu
++++ b/cpp_to_py/gpugr/gr/GPURouterTorch.cu
+@@ -84,6 +84,7 @@
+     torch::PackedTensorAccessor32<float, 1, torch::RestrictPtrTraits> wirelength_weights,
+     torch::PackedTensorAccessor32<float, 3, torch::RestrictPtrTraits> route_gradmat,
+     float grad_weight, float unit_wire_cost, float unit_via_cost,
++    int segment_reduce_mode,
+     int *gbpinRoutes, int *gbpin2netId, int *routes, int *routesOffset,
+     int numGbPin, int N, int LAYER, int xSize, int ySize, int DIRECTION
+ ) {
+@@ -97,6 +98,8 @@
+         }
+         gbpinRoutes += idx * 6;
+         int numGbpinRoutes = gbpinRoutes[0];
++        int xContributions = 0;
++        int yContributions = 0;
+         // int numGbpinVias = gbpinRoutes[5]; // TODO: consider #Vias in route grad
+         for (int i = 1; i < 1 + numGbpinRoutes; i++) {
+             int routeId = gbpinRoutes[i];
+@@ -115,6 +118,17 @@
+             } else {
+                 hx += routes[routeId + 1];
+             }
++            // Maze routing can encode a segment with a negative signed span.
++            // Normalize its endpoints before the inclusive accumulation loop;
++            // otherwise the loop is empty and grad / total_weight becomes 0/0.
++            if (hx < lx) {
++                cudaSwapInt(lx, hx);
++                reverseRoute = !reverseRoute;
++            }
++            if (hy < ly) {
++                cudaSwapInt(ly, hy);
++                reverseRoute = !reverseRoute;
++            }
+             if (lx != hx) {
+                 // x direction route segement
+                 float grad = 0, total_weight = 0;
+@@ -131,7 +145,15 @@
+                     grad += cost * route_gradmat[1][j][ly] * mask_map[j][ly] * cur_dist_weight;
+                     total_weight += cur_dist_weight;
+                 }
+-                gbpin_grad[idx][1] = grad_weight * grad / total_weight * wirelength_weights[hx - lx + 1];
++                if (total_weight > 0) {
++                    float contribution = grad_weight * grad / total_weight * wirelength_weights[hx - lx + 1];
++                    if (segment_reduce_mode == 0) {
++                        gbpin_grad[idx][1] = contribution;
++                    } else {
++                        gbpin_grad[idx][1] += contribution;
++                        yContributions++;
++                    }
++                }
+             } else if (ly != hy) {
+                 // y direction route segement
+                 float grad = 0, total_weight = 0;
+@@ -146,9 +168,21 @@
+                     grad += cost * route_gradmat[0][lx][j] * mask_map[lx][j] * cur_dist_weight;
+                     total_weight += cur_dist_weight;
+                 }
+-                gbpin_grad[idx][0] = grad_weight * grad / total_weight * wirelength_weights[hy - ly + 1];
++                if (total_weight > 0) {
++                    float contribution = grad_weight * grad / total_weight * wirelength_weights[hy - ly + 1];
++                    if (segment_reduce_mode == 0) {
++                        gbpin_grad[idx][0] = contribution;
++                    } else {
++                        gbpin_grad[idx][0] += contribution;
++                        xContributions++;
++                    }
++                }
+             }
+         }
++        if (segment_reduce_mode == 2) {
++            if (xContributions > 0) gbpin_grad[idx][0] /= xContributions;
++            if (yContributions > 0) gbpin_grad[idx][1] /= yContributions;
++        }
+     }
+ }
+ 
+@@ -509,6 +543,38 @@
+                                        float unit_wire_cost,
+                                        float unit_via_cost,
+                                        int num_nodes) {
++    return calcRouteGradReduce(mask_map,
++                               wire_dmd_map_2d,
++                               via_dmd_map_2d,
++                               cap_map_2d,
++                               dist_weights,
++                               wirelength_weights,
++                               route_gradmat,
++                               node2pin_list,
++                               node2pin_list_end,
++                               grad_weight,
++                               unit_wire_cost,
++                               unit_via_cost,
++                               num_nodes,
++                               0);
++}
++
++torch::Tensor GPURouter::calcRouteGradReduce(torch::Tensor mask_map,
++                                             torch::Tensor wire_dmd_map_2d,
++                                             torch::Tensor via_dmd_map_2d,
++                                             torch::Tensor cap_map_2d,
++                                             torch::Tensor dist_weights,
++                                             torch::Tensor wirelength_weights,
++                                             torch::Tensor route_gradmat,
++                                             torch::Tensor node2pin_list,
++                                             torch::Tensor node2pin_list_end,
++                                             float grad_weight,
++                                             float unit_wire_cost,
++                                             float unit_via_cost,
++                                             int num_nodes,
++                                             int segment_reduce_mode) {
++    TORCH_CHECK(segment_reduce_mode >= 0 && segment_reduce_mode <= 2,
++                "segment_reduce_mode must be 0 (last), 1 (sum), or 2 (mean)");
+     // 1. compute demand map and capacity map
+     // 2. compute route_gradmat for each gcell (use torchDCT)
+ 
+@@ -524,7 +590,7 @@
+         dist_weights.packed_accessor32<float, 1, torch::RestrictPtrTraits>(),
+         wirelength_weights.packed_accessor32<float, 1, torch::RestrictPtrTraits>(),
+         route_gradmat.packed_accessor32<float, 3, torch::RestrictPtrTraits>(),
+-        grad_weight, unit_wire_cost, unit_via_cost,
++        grad_weight, unit_wire_cost, unit_via_cost, segment_reduce_mode,
+         gbpinRoutes, gbpin2netId, routes, routesOffset,
+         numGbPin, N, LAYER, X, Y, DIRECTION
+     );

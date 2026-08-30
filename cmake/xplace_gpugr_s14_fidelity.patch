@@ -1,0 +1,991 @@
+diff -u -r -N '--exclude=*.pyc' '--exclude=__pycache__' old/cpp_to_py/common/io/file_lefdef_db.cpp new/cpp_to_py/common/io/file_lefdef_db.cpp
+--- a/cpp_to_py/common/io/file_lefdef_db.cpp
++++ b/cpp_to_py/common/io/file_lefdef_db.cpp
+@@ -849,7 +849,31 @@
+                     layer.direction = 'v';
+                 }
+             } else {
+-                layer.direction = 'x';
++                // RUPlace fix (batch 1, item 3): a ROUTING layer without DIRECTION used to be
++                // left as 'x', which makes readDefTrack push BOTH the X and the Y DEF TRACKS
++                // into layer->tracks -- mixed coordinates, so GRDatabase::setupCapacity counts
++                // garbage capacity for that layer.  Infer the preferred direction as the
++                // opposite of the routing layer below instead.
++                char prevDir = 'x';
++                for (int li = static_cast<int>(db->layers.size()) - 2; li >= 0; li--) {
++                    if (db->layers[li].isRouteLayer() && db->layers[li].direction != 'x') {
++                        prevDir = db->layers[li].direction;
++                        break;
++                    }
++                }
++                if (prevDir == 'h') {
++                    layer.direction = 'v';
++                } else if (prevDir == 'v') {
++                    layer.direction = 'h';
++                } else {
++                    layer.direction = 'h';  // no routing layer below: assume M1 is horizontal
++                }
++                logger.warning(
++                    "routing layer %s has no LEF DIRECTION; inferring '%c' (opposite of the "
++                    "routing layer below, which is '%c')",
++                    name.c_str(),
++                    layer.direction,
++                    prevDir);
+             }
+ 
+             if (leflayer->hasXYPitch()) {
+diff -u -r -N '--exclude=*.pyc' '--exclude=__pycache__' old/cpp_to_py/gpugr/db/GRDatabase.cpp new/cpp_to_py/gpugr/db/GRDatabase.cpp
+--- a/cpp_to_py/gpugr/db/GRDatabase.cpp
++++ b/cpp_to_py/gpugr/db/GRDatabase.cpp
+@@ -197,6 +197,44 @@
+             }
+         }
+     }
++
++    // RUPlace fix (batch 1, item 4): with m1_routable=0 the capacity of routing layer 0 is
++    // zeroed, so calculateWireCost sees capacity < 0.01 and returns INF, forbidding wires on
++    // M1.  Vias down to M1 pins are unaffected (they are priced by inCellViaCost / viaCost).
++    if (grSetting.m1Routable == 0 && nLayers > 0) {
++        for (int j = 0; j < xSize; j++)
++            for (int k = 0; k < ySize; k++) capacity[encodeId(0, j, k)] = 0;
++        logger.info("m1_routable=0: zeroed routing capacity on layer 0 (wires forbidden on M1)");
++    }
++
++    reportCapacity();
++}
++
++// RUPlace fix (batch 1, item 3): one-time per-layer capacity report.  Mixed-direction DEF
++// TRACKS on a LEF layer with no DIRECTION show up here as a track count / mean capacity that
++// is roughly the sum of the X and Y track counts.
++void GRDatabase::reportCapacity() {
++    logger.info("Routing capacity per layer (gcell grid %d x %d):", xSize, ySize);
++    for (int i = 0; i < nLayers; i++) {
++        auto rLayer = rawdb.getRLayer(i);
++        bool prefX = ((i & 1) ^ m1direction) != 0;  // gcell capacity counted along x gridlines
++        double sum = 0.0;
++        for (int j = 0; j < xSize; j++)
++            for (int k = 0; k < ySize; k++) sum += capacity[encodeId(i, j, k)];
++        logger.info(
++            "  layer %d %-10s lefdir=%c capdir=%c pitch=%d width=%d tracks=%zu deftracks=%zu "
++            "nonprefdeftracks=%zu meancap=%.3f",
++            i,
++            rLayer->name().c_str(),
++            rLayer->direction,
++            prefX ? 'v' : 'h',
++            rLayer->pitch,
++            rLayer->width,
++            tracks[i].size(),
++            rLayer->tracks.size(),
++            rLayer->nonPreferDirTracks.size(),
++            sum / (1.0 * xSize * ySize));
++    }
+ }
+ 
+ void GRDatabase::setupCapacityBookshelf() {
+@@ -334,6 +372,30 @@
+     markObs(movObs, movTmpUsage, movTmpLength);
+ }
+ 
++// RUPlace fix (batch 1, item 8): the per-orientation mirroring below used to be an inline
++// switch that only handled N / S / FN / FS -- W, E, FW and FE silently fell through to the
++// identity, placing the obstacle wrong.  Everything now goes through getOrientOffset (the
++// same transform already used for IO pins), plus a normalization that puts the transformed
++// cell bounding box back at (0, 0) so it can be offset by the cell's lower-left corner.
++// For N / S / FN / FS this reproduces the old expressions exactly.
++// NOTE: ctype->originX/originY are not themselves rotated, so a rotated macro with a
++// non-zero LEF ORIGIN is still approximate.
++std::tuple<int, int, int, int> GRDatabase::getOrientedShape(
++    int orient, int cellW, int cellH, int lx, int ly, int hx, int hy) {
++    auto [olx, oly, ohx, ohy] = getOrientOffset(orient, lx, ly, hx, hy);
++    int nx = 0, ny = 0;
++    switch (orient) {
++        case 1: nx = cellH; break;                  // W
++        case 2: nx = cellW; ny = cellH; break;      // S
++        case 3: ny = cellW; break;                  // E
++        case 4: nx = cellW; break;                  // FN
++        case 6: ny = cellH; break;                  // FS
++        case 7: nx = cellH; ny = cellW; break;      // FE
++        default: break;                             // N (0), FW (5), NONE
++    }
++    return {olx + nx, oly + ny, ohx + nx, ohy + ny};
++}
++
+ void GRDatabase::addCellObs(std::vector<RectOnLayer>& allObs, db::Cell* cell) {
+     db::CellType* ctype = cell->ctype();
+     int cellOrient = cell->orient();
+@@ -342,50 +404,16 @@
+     // Macro Obs
+     for (auto& e : ctype->obs()) {
+         if (e.layer.rIndex <= 0) continue;  // ignore M1 OBS and non-routing layer
+-        int lx = e.lx, ly = e.ly, hx = e.hx, hy = e.hy;
+-        switch (cellOrient) {
+-            case 2:  // S
+-                lx = ctype->width - e.hx;
+-                ly = ctype->height - e.hy;
+-                hx = ctype->width - e.lx;
+-                hy = ctype->height - e.ly;
+-                break;
+-            case 4:  // FN
+-                lx = ctype->width - e.hx;
+-                hx = ctype->width - e.lx;
+-                break;
+-            case 6:  // FS
+-                ly = ctype->height - e.hy;
+-                hy = ctype->height - e.ly;
+-                break;
+-            default:
+-                break;
+-        }
++        auto [lx, ly, hx, hy] =
++            getOrientedShape(cellOrient, ctype->width, ctype->height, e.lx, e.ly, e.hx, e.hy);
+         allObs.emplace_back(e.layer.rIndex, lx + dx, ly + dy, hx + dx, hy + dy);
+     }
+     // Pin Box
+     for (auto pintype : ctype->pins) {
+         for (auto& e : pintype->shapes) {
+             if (e.layer.rIndex <= 0) continue;  // ignore M1 OBS and non-routing layer
+-            int lx = e.lx, ly = e.ly, hx = e.hx, hy = e.hy;
+-            switch (cellOrient) {
+-                case 2:  // S
+-                    lx = ctype->width - e.hx;
+-                    ly = ctype->height - e.hy;
+-                    hx = ctype->width - e.lx;
+-                    hy = ctype->height - e.ly;
+-                    break;
+-                case 4:  // FN
+-                    lx = ctype->width - e.hx;
+-                    hx = ctype->width - e.lx;
+-                    break;
+-                case 6:  // FS
+-                    ly = ctype->height - e.hy;
+-                    hy = ctype->height - e.ly;
+-                    break;
+-                default:
+-                    break;
+-            }
++            auto [lx, ly, hx, hy] =
++                getOrientedShape(cellOrient, ctype->width, ctype->height, e.lx, e.ly, e.hx, e.hy);
+             allObs.emplace_back(e.layer.rIndex, lx + dx, ly + dy, hx + dx, hy + dy);
+         }
+     }
+diff -u -r -N '--exclude=*.pyc' '--exclude=__pycache__' old/cpp_to_py/gpugr/db/GRDatabase.h new/cpp_to_py/gpugr/db/GRDatabase.h
+--- a/cpp_to_py/gpugr/db/GRDatabase.h
++++ b/cpp_to_py/gpugr/db/GRDatabase.h
+@@ -82,6 +82,7 @@
+     ~GRDatabase();
+ 
+     void setupCapacity();
++    void reportCapacity();
+     void setupCapacityBookshelf();
+     void setupWireDist();
+ 
+@@ -99,6 +100,8 @@
+ 
+     int encodeId(int l, int x, int y);
+     std::tuple<int, int, int, int> getOrientOffset(int orient, int lx, int ly, int hx, int hy);
++    std::tuple<int, int, int, int> getOrientedShape(
++        int orient, int cellW, int cellH, int lx, int ly, int hx, int hy);
+     int getEOLSpace(int width, int l);
+     int getParallelRunSpace(int l, int width, int length);
+     utils::PointT<int> getObsMargin(RectOnLayer box, AggrParaRunSpace aggr);
+diff -u -r -N '--exclude=*.pyc' '--exclude=__pycache__' old/cpp_to_py/gpugr/db/GRSetting.cpp new/cpp_to_py/gpugr/db/GRSetting.cpp
+--- a/cpp_to_py/gpugr/db/GRSetting.cpp
++++ b/cpp_to_py/gpugr/db/GRSetting.cpp
+@@ -12,6 +12,11 @@
+     rrrIters = 0;
+ 
+     routeGuideFile = ""; 
++
++    maxRouteLenPerPin = 130;
++    m1Routable = 1;
++    viaUsageScale = 1.5f;
++    wireCostSat = 0;
+ }
+ 
+ GRSetting grSetting;
+diff -u -r -N '--exclude=*.pyc' '--exclude=__pycache__' old/cpp_to_py/gpugr/db/GRSetting.h new/cpp_to_py/gpugr/db/GRSetting.h
+--- a/cpp_to_py/gpugr/db/GRSetting.h
++++ b/cpp_to_py/gpugr/db/GRSetting.h
+@@ -18,6 +18,20 @@
+ 
+     std::string routeGuideFile = "";
+ 
++    // ---- RUPlace s14 fidelity knobs (defaults = legacy Xplace behavior) ----
++    // Max number of route-array entries reserved per pin (legacy hard-coded 130).
++    int maxRouteLenPerPin = 130;
++    // 1 = legacy (M1 carries wire capacity); 0 = zero out routing layer 0 capacity so
++    // that wires are forbidden on M1 while vias down to M1 pins stay legal.
++    int m1Routable = 1;
++    // Scale on the sqrt(via count) in-gcell via-usage model (legacy literal 1.5).
++    float viaUsageScale = 1.5f;
++    // 0 = legacy: the int64 wireCostSum difference is truncated into an `int`, so a span that
++    // crosses >= 3 blocked gcells (cost INF each) wraps and yields a negative "distance" that
++    // wins the final min, making the net report `failed`.  1 = saturate the difference and the
++    // distance accumulations at INF so a blocked layer simply loses the min instead.
++    int wireCostSat = 0;
++
+     void reset();
+ };
+ 
+diff -u -r -N '--exclude=*.pyc' '--exclude=__pycache__' old/cpp_to_py/gpugr/gr/GPURouter.cu new/cpp_to_py/gpugr/gr/GPURouter.cu
+--- a/cpp_to_py/gpugr/gr/GPURouter.cu
++++ b/cpp_to_py/gpugr/gr/GPURouter.cu
+@@ -1,10 +1,15 @@
+ #include "GPURouter.h"
+ #include "InCellUsage.cuh"
++#include "gpugr/db/GRSetting.h"
+ #include <cstdio>
++#include <cstdlib>
+ 
+ namespace gr {
+ 
+-constexpr int MAX_ROUTE_LEN_PER_PIN = 130;   // too large may exceed the maximum GPU memory
++// RUPlace fix (batch 1, item 2): was `constexpr int MAX_ROUTE_LEN_PER_PIN = 130;`.
++// Now driven by grSetting.maxRouteLenPerPin (load_gr_params key "max_route_len_per_pin",
++// default 130 = legacy).  Too large may exceed the maximum GPU memory.
++#define MAX_ROUTE_LEN_PER_PIN (grSetting.maxRouteLenPerPin)
+ 
+ constexpr int INF = 10000000;
+ constexpr int MAX_COST = 10000000;
+@@ -117,10 +122,10 @@
+     copy(fix, fixed);
+ }
+ 
+-__global__ void calculateCellResource(float *cell_resource, int *wires, float *fixed, int *vias, const float *capacity, int N, int LAYER, int tot) {
++__global__ void calculateCellResource(float *cell_resource, int *wires, float *fixed, int *vias, const float *capacity, int N, int LAYER, int tot, float viaScale) {
+     int idx = blockIdx.x * blockDim.x + threadIdx.x;
+     if(idx >= tot) return;
+-    cell_resource[idx] = cellResource(idx, wires, fixed, vias, capacity, N, LAYER);
++    cell_resource[idx] = cellResource(idx, wires, fixed, vias, capacity, N, LAYER, viaScale);
+ }
+ 
+ __global__ void calculateCoarseCost(float *cell_resource, int *cost, int *wires, float *fixed, int *vias, float *capacity, int N, int xsize, int ysize, int X, int Y, int LAYER, int DIRECTION, int COARSENING_SCALE) {
+@@ -301,7 +306,7 @@
+ }
+ */
+ 
+-__global__ void calculateWireCost(dtype *cost, float *wireDist, float *fixed, float *fixedLength, int *wires, int *vias, float *capacity, float *unitShortCost, float logisticSlope, int N, int LAYER) {
++__global__ void calculateWireCost(dtype *cost, float *wireDist, float *fixed, float *fixedLength, int *wires, int *vias, float *capacity, float *unitShortCost, float logisticSlope, int N, int LAYER, float viaScale) {
+     int idx = blockIdx.x * blockDim.x + threadIdx.x;
+     if(!(idx < LAYER * N * N && idx % N + 1 < N)) return;
+     if(capacity[idx] < 0.01) {
+@@ -309,7 +314,7 @@
+         return;
+     }
+     int expectedLen = (fixed[idx] * fixedLength[idx] + wires[idx] * wireDist[idx]) / capacity[idx];
+-    float remain = capacity[idx] - (fixed[idx] + wires[idx] + 1 + twoCellsViaUsage(idx, vias, N, LAYER));
++    float remain = capacity[idx] - (fixed[idx] + wires[idx] + 1 + twoCellsViaUsage(idx, vias, N, LAYER, viaScale));
+     //if(idx == 2 * N * N + 63)
+     //    for(int i = 0; i < 9; i++)
+     //    printf("%d unit %.2lf\n", i, unitShortCost[i]);
+@@ -344,10 +349,10 @@
+     if(cur < cnt) atomicAdd(vias + pins[cur], 1);
+ }
+ 
+-__global__ void markOverflowWires(const float *capacity, int *wires, int *vias, float *fixed, int *isOverflow, int N, int LAYER) {
++__global__ void markOverflowWires(const float *capacity, int *wires, int *vias, float *fixed, int *isOverflow, int N, int LAYER, float viaScale) {
+     int idx = blockIdx.x * blockDim.x + threadIdx.x;
+     if(idx < LAYER * N * N && idx % N + 1 < N) 
+-        isOverflow[idx] = (wires[idx] + fixed[idx] + twoCellsViaUsage(idx, vias, N, LAYER) > capacity[idx]);
++        isOverflow[idx] = (wires[idx] + fixed[idx] + twoCellsViaUsage(idx, vias, N, LAYER, viaScale) > capacity[idx]);
+ }
+ 
+ __global__ void markOverflowVias(const float *capacity, int *wires, int *vias, float *fixed, int *isOverflow, int N, int LAYER) {
+@@ -778,13 +783,34 @@
+     reverse(batchSizes.begin(), batchSizes.end());
+     reverse(netsToRoute.begin(), netsToRoute.end());
+     logger.info("number of batches: %d;  number of nets: %d", batchSizes.size(), netsToRoute.size());
++    // RUPlace (batch 1, item 7): RUPLACE_GR_DEBUG_FAILED=N prints the first N pattern-route
++    // failures with per-pin gcell/layer/capacity context.  0 (unset) = off, zero overhead.
++    int dbgFailedLimit = 0;
++    if (const char *env = getenv("RUPLACE_GR_DEBUG_FAILED")) dbgFailedLimit = atoi(env);
++    static int *dbgFailedCounter = nullptr;
++    static int *dbgNetIdBuf = nullptr;
++    static int dbgNetIdCap = 0;
++    if (dbgFailedLimit > 0) {
++        int maxBatch = 0;
++        for (auto b : batchSizes) maxBatch = std::max(maxBatch, b);
++        if (dbgFailedCounter == nullptr) {
++            cudaMallocManaged(&dbgFailedCounter, sizeof(int));
++            *dbgFailedCounter = 0;
++        }
++        if (dbgNetIdCap < maxBatch) {
++            if (dbgNetIdBuf) cudaFree(dbgNetIdBuf);
++            cudaMallocManaged(&dbgNetIdBuf, maxBatch * sizeof(int));
++            dbgNetIdCap = maxBatch;
++        }
++        logger.info("RUPLACE_GR_DEBUG_FAILED=%d (iter %d)", dbgFailedLimit, iter);
++    }
+     int startpos = 0; 
+     int sumofpins = 0;
+     // int lowestpins = 0;
+     // int batch_cnt = 0;
+     double mrtime = 0, costtime = 0;
+     for(auto batchSize : batchSizes) {
+-        calculateWireCost<<<BLOCK_NUMBER(LAYER * N * N), BLOCK_SIZE>>> (cost, wireDist, fixed, fixedLength, wires, vias, capacity, unitShortCostDiscounted, logisticSlope, N, LAYER);
++        calculateWireCost<<<BLOCK_NUMBER(LAYER * N * N), BLOCK_SIZE>>> (cost, wireDist, fixed, fixedLength, wires, vias, capacity, unitShortCostDiscounted, logisticSlope, N, LAYER, grSetting.viaUsageScale);
+         calculateViaCost<<<BLOCK_NUMBER((LAYER - 1) * N * N), BLOCK_SIZE>>> (wires, fixed, capacity, viaCost, unitViaMultiplier, unitViaCost, logisticSlope, N, LAYER);   
+         calculateCostSum<<<N, N / 2, N * sizeof(int64_t)>>> (LAYER, N, cost, costSum);
+         if(iter == 0) {
+@@ -813,11 +839,18 @@
+             prpreparetime += clock() - t;
+             t = clock();
+             //cudaMemcpy(cuda_points, points, offset * sizeof(int), cudaMemcpyHostToDevice);
+-            patternRoute(points, batchSize, costSum, viaCost, dist, prev, wires, vias, routes, gbpoints, gbpinRoutes, X, Y, N, LAYER, DIRECTION);
++            if (dbgFailedLimit > 0) {
++                for (int i = 0; i < batchSize; i++) dbgNetIdBuf[i] = netsToRoute[startpos + i];
++                cudaDeviceSynchronize();
++            }
++            patternRoute(points, batchSize, costSum, viaCost, dist, prev, wires, vias, routes, gbpoints, gbpinRoutes, X, Y, N, LAYER, DIRECTION,
++                         capacity, dbgFailedLimit > 0 ? dbgNetIdBuf : nullptr,
++                         dbgFailedLimit > 0 ? dbgFailedCounter : nullptr, dbgFailedLimit,
++                         grSetting.wireCostSat);
+             
+             prtime += clock() - t;
+         } else {
+-            calculateCellResource<<<BLOCK_NUMBER(LAYER * N * N), BLOCK_SIZE>>> (cell_resource, wires, fixed, vias, capacity, N, LAYER, LAYER * N * N);
++            calculateCellResource<<<BLOCK_NUMBER(LAYER * N * N), BLOCK_SIZE>>> (cell_resource, wires, fixed, vias, capacity, N, LAYER, LAYER * N * N, grSetting.viaUsageScale);
+             calculateCoarseCost<<<LAYER * cgxsize, cgysize>>> (cell_resource, gpuMR.cost, wires, fixed, vias, capacity, N, cgxsize, cgysize, X, Y, LAYER, DIRECTION, COARSENING_SCALE);    
+             calculateCoarseVia<<<(LAYER - 1) * cgxsize, cgysize>>> (cell_resource, gpuMR.via, wires, fixed, vias, capacity, N, LAYER, cgxsize, cgysize, X, Y, DIRECTION, COARSENING_SCALE);
+             gpuMR.run(DIRECTION, iter);
+@@ -865,7 +898,7 @@
+     //gpuMR.query();
+     //if(iter == db::setting.rrrIterLimit - 1) {
+     if(1) {
+-        markOverflowWires<<<BLOCK_NUMBER(LAYER * N * N), BLOCK_SIZE>>> (capacity, wires, vias, fixed, isOverflowWire, N, LAYER);
++        markOverflowWires<<<BLOCK_NUMBER(LAYER * N * N), BLOCK_SIZE>>> (capacity, wires, vias, fixed, isOverflowWire, N, LAYER, grSetting.viaUsageScale);
+         markOverflowVias<<<BLOCK_NUMBER((LAYER - 1) * N * N), BLOCK_SIZE>>> (capacity, wires, vias, fixed, isOverflowVia, N, LAYER);
+         markOverflowNets<<<BLOCK_NUMBER(NET_NUM), BLOCK_SIZE>>> (isOverflowVia, isOverflowWire, isOverflowNet, routes, routesOffset, NET_NUM);
+         cudaDeviceSynchronize();
+@@ -896,11 +929,13 @@
+     cudaMalloc(&routesOffset, (NET_NUM + 1) * sizeof(int));
+     cudaMemcpy(routesOffset, routesOffsetCPU, sizeof(int) * (NET_NUM + 1), cudaMemcpyHostToDevice);
+ 
+-    for (int netId = nets.size() - 1; netId >= 0; netId--) {
+-        auto& lastGrNet = nets[netId];
+-        if (lastGrNet.pin2gbpinId.size() > 0) {
+-            numGbPin = lastGrNet.pin2gbpinId[lastGrNet.pin2gbpinId.size() - 1] + 1;
+-            break;
++    // RUPlace fix (batch 7, item 1): this used to take the LAST net's last gbpin id + 1, which
++    // is only the maximum while gbpin ids are handed out strictly in net order.  Take the real
++    // maximum over every net so the gbpinRoutes / gbpin2netId allocations cannot be undersized.
++    numGbPin = 0;
++    for (size_t netId = 0; netId < nets.size(); netId++) {
++        for (int gbpinId : nets[netId].pin2gbpinId) {
++            numGbPin = std::max(numGbPin, gbpinId + 1);
+         }
+     }
+     // numRoutes, routeId, routeId, routeId, routeId, numVias
+@@ -923,6 +958,12 @@
+     }
+     cudaMalloc(&gbpin2netId, numGbPin * sizeof(int));
+     cudaMemcpy(gbpin2netId, gbpin2netIdCPU.data(), numGbPin * sizeof(int), cudaMemcpyHostToDevice);
++    // RUPlace (batch 7, item 1): placement pins whose net is not in the GR database keep -1 here
++    // and used to be dereferenced as gbpin_grad[-1] in assignRouteForceToPlPin.  Report the count.
++    int numUnmappedPlPin = 0;
++    for (int i = 0; i < numPlPin; i++)
++        if (plPinId2gbPinIdCPU[i] < 0) numUnmappedPlPin++;
++    logger.info("gbpins %d, placement pins %d, unmapped placement pins %d", numGbPin, numPlPin, numUnmappedPlPin);
+     cudaMalloc(&plPinId2gbPinId, numPlPin * sizeof(int));
+     cudaMemcpy(plPinId2gbPinId, plPinId2gbPinIdCPU.data(), numPlPin * sizeof(int), cudaMemcpyHostToDevice);
+ 
+diff -u -r -N '--exclude=*.pyc' '--exclude=__pycache__' old/cpp_to_py/gpugr/gr/GPURouter.h new/cpp_to_py/gpugr/gr/GPURouter.h
+--- a/cpp_to_py/gpugr/gr/GPURouter.h
++++ b/cpp_to_py/gpugr/gr/GPURouter.h
+@@ -37,6 +37,7 @@
+ public:
+     std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> getDemandMap();
+     torch::Tensor getCapacityMap();
++    torch::Tensor getFixedMap();
+     torch::Tensor calcRouteGrad(torch::Tensor mask_map,
+                                 torch::Tensor wire_dmd_map_2d,
+                                 torch::Tensor via_dmd_map_2d,
+diff -u -r -N '--exclude=*.pyc' '--exclude=__pycache__' old/cpp_to_py/gpugr/gr/GPURouterTorch.cu new/cpp_to_py/gpugr/gr/GPURouterTorch.cu
+--- a/cpp_to_py/gpugr/gr/GPURouterTorch.cu
++++ b/cpp_to_py/gpugr/gr/GPURouterTorch.cu
+@@ -1,3 +1,4 @@
++#include "gpugr/db/GRSetting.h"
+ #include "GPURouter.h"
+ #include "InCellUsage.cuh"
+ #include <torch/extension.h>
+@@ -33,10 +34,15 @@
+             start_idx = node2pin_list_end[i - 1];
+         }
+         int64_t end_idx = node2pin_list_end[i];
++        // RUPlace fix (batch 7, item 1): node2pin_list comes from GPDatabase::getNode2PinInfoTensor
++        // and pin_grad is sized by GRDatabase's gpdb.getPins().size(); those agree today, but this
++        // is the last unguarded dereference on the ADMM gradient path, so bound it explicitly.
++        const int64_t num_pins = pin_grad.size(0);
+         if (end_idx != start_idx) {
+-            node_grad[i][c] += pin_grad[node2pin_list[start_idx]][c];
+-            for (int64_t idx = start_idx + 1; idx < end_idx; idx++) {
+-                node_grad[i][c] += pin_grad[node2pin_list[idx]][c];
++            for (int64_t idx = start_idx; idx < end_idx; idx++) {
++                const int64_t pin_id = node2pin_list[idx];
++                if (pin_id < 0 || pin_id >= num_pins) continue;
++                node_grad[i][c] += pin_grad[pin_id][c];
+             }
+         }
+     }
+@@ -46,14 +52,14 @@
+     torch::PackedTensorAccessor32<float, 3, torch::RestrictPtrTraits> dmdMap,
+     torch::PackedTensorAccessor32<float, 3, torch::RestrictPtrTraits> wireDmdMap,
+     torch::PackedTensorAccessor32<float, 3, torch::RestrictPtrTraits> viaDmdMap,
+-    const float *capacity, int *wires, int *vias, float *fixed, int N, int LAYER, int xSize, int ySize, int DIRECTION) {
++    const float *capacity, int *wires, int *vias, float *fixed, int N, int LAYER, int xSize, int ySize, int DIRECTION, float viaScale) {
+     int idx = blockIdx.x * blockDim.x + threadIdx.x;
+     if(idx < LAYER * N * N && idx % N + 1 < N) {
+         int layer = idx / N / N, x = idx / N % N, y = idx % N;
+         if (!(layer & 1) ^ DIRECTION) cudaSwapInt(x, y);
+         if (layer < LAYER && x < xSize && y < ySize) {
+             float wireDmd = wires[idx] + fixed[idx];
+-            float viaDmd = twoCellsViaUsage(idx, vias, N, LAYER);
++            float viaDmd = twoCellsViaUsage(idx, vias, N, LAYER, viaScale);
+             dmdMap[layer][x][y] = wireDmd + viaDmd;
+             wireDmdMap[layer][x][y] = wireDmd;
+             viaDmdMap[layer][x][y] = viaDmd;
+@@ -74,6 +80,21 @@
+     }
+ }
+ 
++// RUPlace (batch 1, item 6): expose the per-gcell blocked-track ("fixed") map so the
++// calibration harness can form the available-capacity utilization wire/(cap - fixed).
++__global__ void getFixedTensor(
++    torch::PackedTensorAccessor32<float, 3, torch::RestrictPtrTraits> fixedMap,
++    const float *capacity, int *wires, int *vias, float *fixed, int N, int LAYER, int xSize, int ySize, int DIRECTION) {
++    int idx = blockIdx.x * blockDim.x + threadIdx.x;
++    if(idx < LAYER * N * N && idx % N + 1 < N) {
++        int layer = idx / N / N, x = idx / N % N, y = idx % N;
++        if (!(layer & 1) ^ DIRECTION) cudaSwapInt(x, y);
++        if (layer < LAYER && x < xSize && y < ySize) {
++            fixedMap[layer][x][y] = fixed[idx];
++        }
++    }
++}
++
+ __global__ void compGcellRouteForce(
+     torch::PackedTensorAccessor32<float, 2, torch::RestrictPtrTraits> gbpin_grad,
+     torch::PackedTensorAccessor32<float, 2, torch::RestrictPtrTraits> mask_map,
+@@ -109,6 +130,11 @@
+                 routeId = -routeId;
+                 reverseRoute = true;
+             }
++            // RUPlace fix (batch 7, item 1): gbpinRoutes is written by PatternRoute only, so a
++            // maze-routed net's ids can be stale (ripupOverflowNets resets routes[0] to 1 and the
++            // slab is rewritten), and nothing bounded the indirection.  Skip anything that is not
++            // a live segment start in the CURRENT slab.  Guards only; no valid record is skipped.
++            if (routeId < 1 || routeId + 1 >= routes[0]) continue;
+             int p = routes[routeId];
+             int l = p / N / N, x = p % (N * N) / N, y = p % N;
+             if (!(l & 1) ^ DIRECTION) cudaSwapInt(x, y);
+@@ -132,6 +158,12 @@
+             if (lx != hx) {
+                 // x direction route segement
+                 float grad = 0, total_weight = 0;
++                // RUPlace fix (batch 7, item 1): bound the decoded segment before it indexes the
++                // 2D maps and the distance / wirelength weight tables (sized by the caller from
++                // the gcell grid).  Placed here, not above, to stay clear of the hunks of
++                // cmake/xplace_gpugr_negative_span.patch, which CMake verifies.
++                if (lx < 0 || ly < 0 || hx >= xSize || ly >= ySize) continue;
++                if (hx - lx > min(dist_weights.size(0), wirelength_weights.size(0)) - 1) continue;
+                 for (int j = lx; j <= hx; j++) {
+                     float cur_dist_weight;
+                     if (reverseRoute) {
+@@ -157,6 +189,9 @@
+             } else if (ly != hy) {
+                 // y direction route segement
+                 float grad = 0, total_weight = 0;
++                // RUPlace fix (batch 7, item 1): see the x-direction branch above.
++                if (lx < 0 || ly < 0 || lx >= xSize || hy >= ySize) continue;
++                if (hy - ly > min(dist_weights.size(0), wirelength_weights.size(0)) - 1) continue;
+                 for (int j = ly; j<= hy; j++) {
+                     float cur_dist_weight;
+                     if (reverseRoute) {
+@@ -194,6 +229,10 @@
+     int plPinId = blockIdx.x * blockDim.x + threadIdx.x;
+     if (plPinId < numPlPin) {
+         int gbPinId = plPinId2gbPinId[plPinId];
++        // RUPlace fix (batch 7, item 1): plPinId2gbPinId is initialised to -1 and stays -1 for
++        // every placement pin whose net is not in the GR database.  gbpin_grad[-1] is a read
++        // before the tensor; leave plpin_grad (zero-initialised) alone for those pins instead.
++        if (gbPinId < 0 || gbPinId >= gbpin_grad.size(0)) return;
+         plpin_grad[plPinId][0] = gbpin_grad[gbPinId][0];
+         plpin_grad[plPinId][1] = gbpin_grad[gbPinId][1];
+     }
+@@ -217,6 +256,19 @@
+         }
+         gbpinRoutes += idx * 6;
+         int numGbpinRoutes = gbpinRoutes[0];
++        // RUPlace fix (batch 7, item 1): defensive bounds on the gbpinRoutes -> routes indirection.
++        // Two hazards live here.  (1) gbpinRoutes is filled in by PatternRoute only, i.e. by GR
++        // iteration 0.  ripupOverflowNets() (GPURouter.cu) then resets routes[0] to 1 for every
++        // overflowing net and maze routing rewrites that net's slab in place, but gbpinRoutes is
++        // never regenerated -- on regression_s14 253,151 of 414,194 routed nets (61%) are ripped
++        // up, nvdla_s 17,814 of 190,439 (9%), so most ids read here are stale and decode to
++        // nonsense segments.  (A rrr_iters=0 run, which has no rip-up at all, still hits the
++        // illegal access, so staleness is a real defect but not the fault's trigger.)  (2) a
++        // decoded segment's span indexes dist_weights / wirelength_weights, which the caller
++        // sizes from the gcell grid, and its endpoints index the overflow / capacity maps --
++        // none of that was bounds-checked.  Skip a suspect record instead of dereferencing it.
++        const int numRouteEntries = routes[0];
++        if (numGbpinRoutes < 0 || numGbpinRoutes > 4) numGbpinRoutes = 0;
+         for (int i = 1; i < 1 + numGbpinRoutes; i++) {
+             int routeId = gbpinRoutes[i];
+             bool reverseRoute = false;
+@@ -224,6 +276,8 @@
+                 routeId = -routeId;
+                 reverseRoute = true;
+             }
++            // stale / corrupt id: not an odd segment-start offset inside the live slab
++            if (routeId < 1 || routeId + 1 >= numRouteEntries) continue;
+             int p = routes[routeId];
+             int l = p / N / N, x = p % (N * N) / N, y = p % N;
+             if (!(l & 1) ^ DIRECTION) cudaSwapInt(x, y);
+@@ -234,6 +288,11 @@
+                 hx += routes[routeId + 1];
+             }
+ 
++            // a decoded segment must sit inside the gcell grid and inside the weight tables
++            if (lx < 0 || ly < 0 || hx < 0 || hy < 0) continue;
++            if (lx >= xSize || hx >= xSize || ly >= ySize || hy >= ySize) continue;
++            const int maxSpanIdx = min(dist_weights.size(0), wirelength_weights.size(0)) - 1;
++            if (hx - lx > maxSpanIdx || hy - ly > maxSpanIdx) continue;
+             if (lx != hx && ly == hy) {
+                 float score = 0.0;
+                 float total_weight = 0.0;
+@@ -515,7 +574,7 @@
+         dmdMap.packed_accessor32<float, 3, torch::RestrictPtrTraits>(),
+         wireDmdMap.packed_accessor32<float, 3, torch::RestrictPtrTraits>(),
+         viaDmdMap.packed_accessor32<float, 3, torch::RestrictPtrTraits>(),
+-        capacity, wires, vias, fixed, N, LAYER, xSize, ySize, DIRECTION);
++        capacity, wires, vias, fixed, N, LAYER, xSize, ySize, DIRECTION, grSetting.viaUsageScale);
+     return {dmdMap, wireDmdMap, viaDmdMap};
+ }
+ 
+@@ -530,6 +589,17 @@
+     return capMap;
+ }
+ 
++torch::Tensor GPURouter::getFixedMap() {
++    int xSize = X;
++    int ySize = Y;
++    torch::Tensor fixedMap = torch::zeros({LAYER, xSize, ySize},
++                        torch::dtype(torch::kFloat32).device(torch::Device(torch::kCUDA, DEVICE_ID)));
++    getFixedTensor<<<BLOCK_NUMBER(LAYER * N * N), BLOCK_SIZE>>>(
++        fixedMap.packed_accessor32<float, 3, torch::RestrictPtrTraits>(),
++        capacity, wires, vias, fixed, N, LAYER, xSize, ySize, DIRECTION);
++    return fixedMap;
++}
++
+ torch::Tensor GPURouter::calcRouteGrad(torch::Tensor mask_map,
+                                        torch::Tensor wire_dmd_map_2d,
+                                        torch::Tensor via_dmd_map_2d,
+diff -u -r -N '--exclude=*.pyc' '--exclude=__pycache__' old/cpp_to_py/gpugr/gr/InCellUsage.cuh new/cpp_to_py/gpugr/gr/InCellUsage.cuh
+--- a/cpp_to_py/gpugr/gr/InCellUsage.cuh
++++ b/cpp_to_py/gpugr/gr/InCellUsage.cuh
+@@ -13,8 +13,11 @@
+     return ans;
+ }
+ 
+-__device__ __forceinline__ float twoCellsViaUsage(int idx, int *vias, int N, int LAYER) {
+-    return sqrt(0.5 * (inCellViaUsage(idx, vias, N, LAYER) + inCellViaUsage(idx + 1, vias, N, LAYER))) * 1.5;
++// RUPlace (batch 1, item 5): the trailing 1.5 used to be a literal; it is now supplied by
++// the caller from grSetting.viaUsageScale (load_gr_params key "via_usage_scale", default 1.5
++// = legacy).  Kernels thread it through as a plain launch argument.
++__device__ __forceinline__ float twoCellsViaUsage(int idx, int *vias, int N, int LAYER, float viaScale) {
++    return sqrt(0.5 * (inCellViaUsage(idx, vias, N, LAYER) + inCellViaUsage(idx + 1, vias, N, LAYER))) * viaScale;
+ }
+ 
+ __device__ __forceinline__ float inCellUsedArea(int idx, int *wires, float *fixed, int N) {
+@@ -30,11 +33,11 @@
+ }
+ 
+ __device__ __forceinline__ float cellResource(
+-    int idx, int *wires, float *fixed, int *vias, const float *capacity, int N, int LAYER) {
++    int idx, int *wires, float *fixed, int *vias, const float *capacity, int N, int LAYER, float viaScale) {
+     float ans = wires[idx] + fixed[idx];
+     if (idx % N) ans += wires[idx - 1] + fixed[idx - 1];
+     ans /= 2;
+-    ans += sqrt(1.0 * inCellViaUsage(idx, vias, N, LAYER)) * 1.5;
++    ans += sqrt(1.0 * inCellViaUsage(idx, vias, N, LAYER)) * viaScale;
+     return capacity[idx] - ans;
+ }
+ 
+diff -u -r -N '--exclude=*.pyc' '--exclude=__pycache__' old/cpp_to_py/gpugr/gr/MazeRoute.cu new/cpp_to_py/gpugr/gr/MazeRoute.cu
+--- a/cpp_to_py/gpugr/gr/MazeRoute.cu
++++ b/cpp_to_py/gpugr/gr/MazeRoute.cu
+@@ -987,13 +987,21 @@
+             fgprev += LAYER * N * N;
+         }
+     } else {
++        // RUPlace fix (batch 1, item 1): the stream vector was default-constructed and never
++        // populated, so every launch below went to the NULL stream and the per-net maze routing
++        // serialized.  Nets inside one batch are independent by construction: map/prev/mark/
++        // routedPin/pins/dist/fgprev all advance per net, costL/costR/via/cost are read-only
++        // here (written once per batch by GPUMazeRouter::run), and routeFG accumulates into
++        // wires/vias with atomicAdd, so concurrent streams are safe and order-independent.
+         std::vector<cudaStream_t> streams(batchSize);
++        for(int i = 0; i < batchSize; i++)
++            cudaStreamCreateWithFlags(&streams[i], cudaStreamNonBlocking);
++        double t = clock();
+         for(int net = 0; net < batchSize; net++) {
+             // -------------------------
+             Init<<<LAYER * X, Y, 0, streams[net]>>> (map, prev);
+             setStart<<<1, 1, 0, streams[net]>>>(map, pins + 2, X, Y, DIRECTION, SCALE, N);
+             cudaMemsetAsync(routedPin, 0, pins[1] * sizeof(int), streams[net]);
+-            double t = clock();
+             //dim3 blockLR(LAYER / 2, X);
+             // int len = pins[1] - 1, cur = LOG - 1;
+             for(int iteration = pins[1]; iteration >= 2; iteration--) {
+@@ -1009,7 +1017,6 @@
+                 Path<<<1, 1, 0, streams[net]>>> (map, pins + 1, routedPin, prev, mark, LAYER, X, Y, N, DIRECTION, SCALE);
+                 routeFG<<<1, SCALE * SCALE, 4 * LAYER * SCALE * SCALE * sizeof(int), streams[net]>>> (costSum, pins + 1, mark, dist, fgprev, wireCost, viaCost, wires, vias, routes, LAYER, SCALE, X, Y, N, DIRECTION);
+             }
+-            time_cnt += clock() - t;
+             //cudaDeviceSynchronize();
+             //exit(0);
+             map += LAYER * X * Y;
+@@ -1020,6 +1027,12 @@
+             dist += LAYER * N * N;
+             fgprev += LAYER * N * N;
+         }
++        // The timer now brackets the whole batch: with real streams the per-net clock() delta
++        // would only measure launch time, not execution time.
++        cudaDeviceSynchronize();
++        time_cnt += clock() - t;
++        for(int i = 0; i < batchSize; i++)
++            cudaStreamDestroy(streams[i]);
+     }
+     //time_cnt += clock() - t;
+     //}
+diff -u -r -N '--exclude=*.pyc' '--exclude=__pycache__' old/cpp_to_py/gpugr/gr/PatternRoute.cu new/cpp_to_py/gpugr/gr/PatternRoute.cu
+--- a/cpp_to_py/gpugr/gr/PatternRoute.cu
++++ b/cpp_to_py/gpugr/gr/PatternRoute.cu
+@@ -9,6 +9,25 @@
+ 
+ #define INF 1000000000
+ __global__ void initMap(int *map) { map[blockIdx.x * blockDim.x + threadIdx.x] = INF; }
++
++// RUPlace fix (batch 2): `wireCostSum` is int64_t but the per-edge cost is kept in an `int`.
++// calculateWireCost stores INF (1e9) for every gcell whose capacity is < 0.01, so a span that
++// crosses >= 3 blocked gcells makes the int64 difference exceed INT_MAX; truncating it into an
++// `int` produces an arbitrary (often negative) value which then wins the final min-over-layers
++// and makes cudaPatternRouteParallel report the net as `failed`.  That is the cause of the
++// constant 5200 `failed` nets on nvdla_s (all of them have a >= 119-gcell span).
++// wireCostSat == 0 reproduces the legacy truncation bit-for-bit; wireCostSat == 1 saturates the
++// difference and every distance accumulation at INF, so a blocked layer just loses the min.
++__device__ __forceinline__ int ruplaceWireCost(const int64_t *s, int last, int cur, int sat) {
++    int64_t d = (last < cur) ? (s[last] - s[cur]) : (s[cur] - s[last]);
++    if (sat && d > static_cast<int64_t>(INF)) d = INF;
++    return static_cast<int>(d);
++}
++__device__ __forceinline__ int ruplaceAdd(int a, int b, int sat) {
++    if (!sat) return a + b;
++    int64_t s = static_cast<int64_t>(a) + static_cast<int64_t>(b);
++    return static_cast<int>(s > static_cast<int64_t>(INF) ? static_cast<int64_t>(INF) : s);
++}
+ template <typename T>
+ __device__ void inline cudaSwap(T &a, T &b) {
+     T c(a);
+@@ -601,7 +620,12 @@
+                                          int *gbpinRoutes,
+                                          int LAYER,
+                                          int N,
+-                                         int DIRECTION) {
++                                         int DIRECTION,
++                                         const float *capacity,
++                                         const int *dbgNetIds,
++                                         int *dbgCounter,
++                                         int dbgLimit,
++                                         int wireCostSat) {
+     // printf("%d offset %d\n", threadIdx.x, points[threadIdx.x]);
+     gbpoints += gbpoints[blockIdx.x];
+     points += points[blockIdx.x];
+@@ -647,9 +671,8 @@
+                             for (int b = min(fromy, toy) + threadIdx.x; b <= max(fromy, toy); b += blockDim.x) {
+                                 if (b != fromy) {
+                                     int cur = i * N * N + fromx * N + b;
+-                                    int cost = last < cur ? wireCostSum[last] - wireCostSum[cur]
+-                                                          : wireCostSum[cur] - wireCostSum[last];
+-                                    map[4 * LAYER * N * N + cur] = map[last] + cost;
++                                    int cost = ruplaceWireCost(wireCostSum, last, cur, wireCostSat);
++                                    map[4 * LAYER * N * N + cur] = ruplaceAdd(map[last], cost, wireCostSat);
+                                     prev[4 * LAYER * N * N + cur] = last;
+                                 }
+                             }
+@@ -658,9 +681,8 @@
+                             for (int b = min(fromx, tox) + threadIdx.x; b <= max(fromx, tox); b += blockDim.x) {
+                                 if (b != fromx) {
+                                     int cur = i * N * N + fromy * N + b;
+-                                    int cost = last < cur ? wireCostSum[last] - wireCostSum[cur]
+-                                                          : wireCostSum[cur] - wireCostSum[last];
+-                                    map[4 * LAYER * N * N + cur] = map[last] + cost;
++                                    int cost = ruplaceWireCost(wireCostSum, last, cur, wireCostSat);
++                                    map[4 * LAYER * N * N + cur] = ruplaceAdd(map[last], cost, wireCostSat);
+                                     prev[4 * LAYER * N * N + cur] = last;
+                                 }
+                             }
+@@ -678,20 +700,18 @@
+                         if ((i & 1) ^ DIRECTION) {
+                             for (int b = min(fromx, tox) + threadIdx.x; b <= max(fromx, tox); b += blockDim.x) {
+                                 int last = i * N * N + b * N + fromy, cur = i * N * N + b * N + toy;
+-                                int cost = last < cur ? wireCostSum[last] - wireCostSum[cur]
+-                                                      : wireCostSum[cur] - wireCostSum[last];
+-                                if (map[4 * LAYER * N * N + last] + cost < map[4 * LAYER * N * N + cur]) {
+-                                    map[4 * LAYER * N * N + cur] = map[4 * LAYER * N * N + last] + cost;
++                                int cost = ruplaceWireCost(wireCostSum, last, cur, wireCostSat);
++                                if (ruplaceAdd(map[4 * LAYER * N * N + last], cost, wireCostSat) < map[4 * LAYER * N * N + cur]) {
++                                    map[4 * LAYER * N * N + cur] = ruplaceAdd(map[4 * LAYER * N * N + last], cost, wireCostSat);
+                                     prev[4 * LAYER * N * N + cur] = prev[4 * LAYER * N * N + last];
+                                 }
+                             }
+                         } else {
+                             for (int b = min(fromy, toy) + threadIdx.x; b <= max(fromy, toy); b += blockDim.x) {
+                                 int last = i * N * N + b * N + fromx, cur = i * N * N + b * N + tox;
+-                                int cost = last < cur ? wireCostSum[last] - wireCostSum[cur]
+-                                                      : wireCostSum[cur] - wireCostSum[last];
+-                                if (map[4 * LAYER * N * N + last] + cost < map[4 * LAYER * N * N + cur]) {
+-                                    map[4 * LAYER * N * N + cur] = map[4 * LAYER * N * N + last] + cost;
++                                int cost = ruplaceWireCost(wireCostSum, last, cur, wireCostSat);
++                                if (ruplaceAdd(map[4 * LAYER * N * N + last], cost, wireCostSat) < map[4 * LAYER * N * N + cur]) {
++                                    map[4 * LAYER * N * N + cur] = ruplaceAdd(map[4 * LAYER * N * N + last], cost, wireCostSat);
+                                     prev[4 * LAYER * N * N + cur] = prev[4 * LAYER * N * N + last];
+                                 }
+                             }
+@@ -711,10 +731,9 @@
+                             for (int b = min(fromy, toy); b <= max(fromy, toy); b++) {
+                                 if (b != toy) {
+                                     int last = i * N * N + tox * N + b;
+-                                    int cost = last < cur ? wireCostSum[last] - wireCostSum[cur]
+-                                                          : wireCostSum[cur] - wireCostSum[last];
+-                                    if (map[4 * LAYER * N * N + last] + cost < map[cur + j * LAYER * N * N]) {
+-                                        map[cur + j * LAYER * N * N] = map[4 * LAYER * N * N + last] + cost;
++                                    int cost = ruplaceWireCost(wireCostSum, last, cur, wireCostSat);
++                                    if (ruplaceAdd(map[4 * LAYER * N * N + last], cost, wireCostSat) < map[cur + j * LAYER * N * N]) {
++                                        map[cur + j * LAYER * N * N] = ruplaceAdd(map[4 * LAYER * N * N + last], cost, wireCostSat);
+                                         prev[cur + j * LAYER * N * N] = prev[4 * LAYER * N * N + last];
+                                         prev2[cur + j * LAYER * N * N] = prev[5 * LAYER * N * N + last];
+                                     }
+@@ -725,10 +744,9 @@
+                             for (int b = min(fromx, tox); b <= max(fromx, tox); b++) {
+                                 if (b != tox) {
+                                     int last = i * N * N + toy * N + b;
+-                                    int cost = last < cur ? wireCostSum[last] - wireCostSum[cur]
+-                                                          : wireCostSum[cur] - wireCostSum[last];
+-                                    if (map[4 * LAYER * N * N + last] + cost < map[cur + j * LAYER * N * N]) {
+-                                        map[cur + j * LAYER * N * N] = map[4 * LAYER * N * N + last] + cost;
++                                    int cost = ruplaceWireCost(wireCostSum, last, cur, wireCostSat);
++                                    if (ruplaceAdd(map[4 * LAYER * N * N + last], cost, wireCostSat) < map[cur + j * LAYER * N * N]) {
++                                        map[cur + j * LAYER * N * N] = ruplaceAdd(map[4 * LAYER * N * N + last], cost, wireCostSat);
+                                         prev[cur + j * LAYER * N * N] = prev[4 * LAYER * N * N + last];
+                                         prev2[cur + j * LAYER * N * N] = prev[5 * LAYER * N * N + last];
+                                     }
+@@ -741,10 +759,9 @@
+                     for (int i = 1 + threadIdx.x; i < LAYER; i += blockDim.x) {
+                         if ((i & 1) ^ DIRECTION) {
+                             int last = i * N * N + fromx * N + fromy, cur = i * N * N + tox * N + toy;
+-                            int cost = last < cur ? wireCostSum[last] - wireCostSum[cur]
+-                                                  : wireCostSum[cur] - wireCostSum[last];
+-                            if (map[cur + j * LAYER * N * N] > map[last] + cost)
+-                                map[cur + j * LAYER * N * N] = map[last] + cost, prev[cur + j * LAYER * N * N] = last;
++                            int cost = ruplaceWireCost(wireCostSum, last, cur, wireCostSat);
++                            if (map[cur + j * LAYER * N * N] > ruplaceAdd(map[last], cost, wireCostSat))
++                                map[cur + j * LAYER * N * N] = ruplaceAdd(map[last], cost, wireCostSat), prev[cur + j * LAYER * N * N] = last;
+                         } else {
+                             map[i * N * N + toy * N + tox + j * LAYER * N * N] = INF;
+                         }
+@@ -754,10 +771,9 @@
+                     for (int i = 1 + threadIdx.x; i < LAYER; i += blockDim.x) {
+                         if (!(i & 1) ^ DIRECTION) {
+                             int last = i * N * N + fromy * N + fromx, cur = i * N * N + toy * N + tox;
+-                            int cost = last < cur ? wireCostSum[last] - wireCostSum[cur]
+-                                                  : wireCostSum[cur] - wireCostSum[last];
+-                            if (map[cur + j * LAYER * N * N] > map[last] + cost) {
+-                                map[cur + j * LAYER * N * N] = map[last] + cost, prev[cur + j * LAYER * N * N] = last;
++                            int cost = ruplaceWireCost(wireCostSum, last, cur, wireCostSat);
++                            if (map[cur + j * LAYER * N * N] > ruplaceAdd(map[last], cost, wireCostSat)) {
++                                map[cur + j * LAYER * N * N] = ruplaceAdd(map[last], cost, wireCostSat), prev[cur + j * LAYER * N * N] = last;
+                             }
+                         } else {
+                             map[i * N * N + tox * N + toy + j * LAYER * N * N] = INF;
+@@ -822,6 +838,39 @@
+         }
+         if (minTotalDist == INF || minTotalDist < 0) {
+             printf("failed\n");
++            // RUPlace (batch 1, item 7): dump the first dbgLimit failures with enough context
++            // to tell whether the pins sit in zero-capacity gcells.
++            if (dbgLimit > 0 && atomicAdd(dbgCounter, 1) < dbgLimit) {
++                int netId = (dbgNetIds ? dbgNetIds[blockIdx.x] : -1);
++                // RUPlace (batch 2): minTotalDist < 0 means the int64->int wire-cost difference
++                // overflowed (see ruplaceWireCost); == INF means genuinely unreachable.
++                printf("RUPLACE_FAILED net=%d minTotalDist=%d reason=%s\n",
++                       netId, minTotalDist, minTotalDist < 0 ? "NEGATIVE_OVERFLOW" : "INF_UNREACHABLE");
++                for (int i = 0; i < LAYER; i++) {
++                    int rx = points[0] / N, ry = points[0] % N;
++                    int ridx = i * N * N + (((i & 1) ^ DIRECTION) ? rx * N + ry : ry * N + rx);
++                    printf("RUPLACE_FAILED   net=%d rootlayer=%d map=%d\n", netId, i, map[ridx]);
++                }
++                int minx = N, maxx = -1, miny = N, maxy = -1;
++                for (int t = 0; t < 6 * node_cnt; t += 6) {
++                    int px = points[t] / N, py = points[t] % N;
++                    minx = min(minx, px); maxx = max(maxx, px);
++                    miny = min(miny, py); maxy = max(maxy, py);
++                }
++                printf("RUPLACE_FAILED net=%d nodes=%d bbox_gcell=(%d,%d)-(%d,%d) size=%dx%d\n",
++                       netId, node_cnt, minx, miny, maxx, maxy, maxx - minx + 1, maxy - miny + 1);
++                for (int t = 0; t < 6 * node_cnt; t += 6) {
++                    int px = points[t] / N, py = points[t] % N;
++                    int lo = points[t + 1], hi = points[t + 2];
++                    printf("RUPLACE_FAILED   net=%d node=%d gcell=(%d,%d) layers=[%d,%d]\n",
++                           netId, t / 6, px, py, lo, hi);
++                    for (int l = max(lo, 0); l <= min(hi, LAYER - 1); l++) {
++                        int cid = l * N * N + (((l & 1) ^ DIRECTION) ? px * N + py : py * N + px);
++                        printf("RUPLACE_FAILED     net=%d node=%d layer=%d cap=%.3f\n",
++                               netId, t / 6, l, capacity ? capacity[cid] : -1.0f);
++                    }
++                }
++            }
+             routes[0] = -1;
+             // printf("routes[0] = %d\n", points[-2]);
+             // return;
+@@ -934,19 +983,25 @@
+ 
+                     // Assign entry/last route to gbpinRoutes
+                     if (t_gbPinId != -1) {
+-                        gbpinRoutes[t_gbPinId * 6 + 1 + gbpinRoutes[t_gbPinId * 6]] = entry_routeId;
+-                        gbpinRoutes[t_gbPinId * 6]++;
+-                        if (gbpinRoutes[t_gbPinId * 6] > 4) {
+-                            printf("Error: numRoutes for t_gbpin d%d\n", gbpinRoutes[t_gbPinId * 6]);
++                        // RUPlace fix (batch 7, item 1): a gbpin record is 6 ints
++                        // {numRoutes, id, id, id, id, numVias}; the old code wrote the 5th id at
++                        // offset +6, i.e. into the NEXT gbpin's numRoutes slot, and only warned
++                        // afterwards.  Bound the write instead of corrupting the neighbour.
++                        if (gbpinRoutes[t_gbPinId * 6] < 4) {
++                            gbpinRoutes[t_gbPinId * 6 + 1 + gbpinRoutes[t_gbPinId * 6]] = entry_routeId;
++                            gbpinRoutes[t_gbPinId * 6]++;
++                        } else {
++                            printf("Error: numRoutes for t_gbpin exceeds 4 (dropped)\n");
+                         }
+                     }
+                     int c_gbPinId = gbpoints[points[t + 3 + j] / 6];
+                     if (c_gbPinId != -1) {
+-                        // negative routeId to refer the last route
+-                        gbpinRoutes[c_gbPinId * 6 + 1 + gbpinRoutes[c_gbPinId * 6]] = -1 * last_routeId;
+-                        gbpinRoutes[c_gbPinId * 6]++;
+-                        if (gbpinRoutes[c_gbPinId * 6] > 4) {
+-                            printf("Error: numRoutes for c_gbpin %d\n", gbpinRoutes[c_gbPinId * 6]);
++                        // negative routeId to refer the last route; same +6 overflow guard as above
++                        if (gbpinRoutes[c_gbPinId * 6] < 4) {
++                            gbpinRoutes[c_gbPinId * 6 + 1 + gbpinRoutes[c_gbPinId * 6]] = -1 * last_routeId;
++                            gbpinRoutes[c_gbPinId * 6]++;
++                        } else {
++                            printf("Error: numRoutes for c_gbpin exceeds 4 (dropped)\n");
+                         }
+                     }
+                 }
+@@ -1182,7 +1237,12 @@
+                   int Y,
+                   int N,
+                   int LAYER,
+-                  int DIRECTION) {
++                  int DIRECTION,
++                  const float *capacity,
++                  const int *dbgNetIds,
++                  int *dbgCounter,
++                  int dbgLimit,
++                  int wireCostSat) {
+     // debug = 1;
+     initMap<<<6 * LAYER * N * 2, N / 2>>>(map);
+     // cudaDeviceSynchronize();
+@@ -1196,7 +1256,8 @@
+     // }
+     cudaPatternRouteParallel<<<batchSize, 32>>>(
+         map, points, wireCostSum, viaCost, prev, prev + 10 * LAYER * N * N, 
+-        wires, vias, routes, gbpoints, gbpinRoutes, LAYER, N, DIRECTION);
++        wires, vias, routes, gbpoints, gbpinRoutes, LAYER, N, DIRECTION,
++        capacity, dbgNetIds, dbgCounter, dbgLimit, wireCostSat);
+ 
+     // cudaPatternRoute<<<batchSize, LAYER>>> (map, points, wireCostSum, viaCost, prev, wires, vias, routes, LAYER, N,
+     // DIRECTION);
+diff -u -r -N '--exclude=*.pyc' '--exclude=__pycache__' old/cpp_to_py/gpugr/gr/PatternRoute.h new/cpp_to_py/gpugr/gr/PatternRoute.h
+--- a/cpp_to_py/gpugr/gr/PatternRoute.h
++++ b/cpp_to_py/gpugr/gr/PatternRoute.h
+@@ -45,5 +45,14 @@
+                   int Y,
+                   int N,
+                   int LAYER,
+-                  int DIRECTION);
++                  int DIRECTION,
++                  // RUPlace (batch 1, item 7): failed-net diagnostics, enabled by
++                  // RUPLACE_GR_DEBUG_FAILED=N.  All four are ignored when dbgLimit == 0.
++                  const float *capacity = nullptr,
++                  const int *dbgNetIds = nullptr,
++                  int *dbgCounter = nullptr,
++                  int dbgLimit = 0,
++                  // RUPlace (batch 2): 1 = saturate the int64->int wire-cost difference and the
++                  // distance accumulations at INF (grSetting.wireCostSat).  0 = legacy truncation.
++                  int wireCostSat = 0);
+ }  // namespace gr
+\ No newline at end of file
+diff -u -r -N '--exclude=*.pyc' '--exclude=__pycache__' old/cpp_to_py/gpugr/gr/RouteForce.cpp new/cpp_to_py/gpugr/gr/RouteForce.cpp
+--- a/cpp_to_py/gpugr/gr/RouteForce.cpp
++++ b/cpp_to_py/gpugr/gr/RouteForce.cpp
+@@ -73,6 +73,8 @@
+ 
+ torch::Tensor RouteForce::getCapacityMap() { return router.getCapacityMap(); }
+ 
++torch::Tensor RouteForce::getFixedMap() { return router.getFixedMap(); }
++
+ torch::Tensor RouteForce::calcRouteGrad(torch::Tensor mask_map,
+                                         torch::Tensor wire_dmd_map_2d,
+                                         torch::Tensor via_dmd_map_2d,
+diff -u -r -N '--exclude=*.pyc' '--exclude=__pycache__' old/cpp_to_py/gpugr/gr/RouteForce.h new/cpp_to_py/gpugr/gr/RouteForce.h
+--- a/cpp_to_py/gpugr/gr/RouteForce.h
++++ b/cpp_to_py/gpugr/gr/RouteForce.h
+@@ -16,6 +16,7 @@
+ public:
+     std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> getDemandMap();
+     torch::Tensor getCapacityMap();
++    torch::Tensor getFixedMap();
+     torch::Tensor calcRouteGrad(torch::Tensor mask_map,
+                                 torch::Tensor wire_dmd_map_2d,
+                                 torch::Tensor via_dmd_map_2d,
+diff -u -r -N '--exclude=*.pyc' '--exclude=__pycache__' old/cpp_to_py/gpugr/PyBindCppMain.cpp new/cpp_to_py/gpugr/PyBindCppMain.cpp
+--- a/cpp_to_py/gpugr/PyBindCppMain.cpp
++++ b/cpp_to_py/gpugr/PyBindCppMain.cpp
+@@ -38,6 +38,24 @@
+         gr::grSetting.routeGuideFile = kwargs["route_guide"].cast<std::string>();
+     }
+ 
++    // ----- RUPlace s14 fidelity knobs (defaults = legacy behavior) -----
++
++    if (kwargs.contains("max_route_len_per_pin")) {
++        gr::grSetting.maxRouteLenPerPin = kwargs["max_route_len_per_pin"].cast<int>();
++    }
++
++    if (kwargs.contains("m1_routable")) {
++        gr::grSetting.m1Routable = kwargs["m1_routable"].cast<int>();
++    }
++
++    if (kwargs.contains("via_usage_scale")) {
++        gr::grSetting.viaUsageScale = kwargs["via_usage_scale"].cast<float>();
++    }
++
++    if (kwargs.contains("wire_cost_sat")) {
++        gr::grSetting.wireCostSat = kwargs["wire_cost_sat"].cast<int>();
++    }
++
+     return true;
+ }
+ 
+@@ -77,7 +95,9 @@
+         .def("filler_route_grad", &gr::RouteForce::calcFillerRouteGrad, py::return_value_policy::move)
+         .def("pseudo_grad", &gr::RouteForce::calcPseudoPinGrad, py::return_value_policy::move)
+         .def("inflate_ratio", &gr::RouteForce::calcNodeInflateRatio, py::return_value_policy::move)
+-        .def("inflate_pin_rel_cpos", &gr::RouteForce::calcInflatedPinRelCpos, py::return_value_policy::move);
++        .def("inflate_pin_rel_cpos", &gr::RouteForce::calcInflatedPinRelCpos, py::return_value_policy::move)
++        // RUPlace (batch 1, item 6): per-gcell blocked-track map, same layout as cap_map.
++        .def("fixed_map", &gr::RouteForce::getFixedMap, py::return_value_policy::move);
+     
+     m.def("create_grdatabase", [](std::shared_ptr<db::Database> rawdb, std::shared_ptr<gp::GPDatabase> gpdb) {
+         logger.enable_logger();
