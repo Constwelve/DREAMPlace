@@ -245,13 +245,17 @@ __global__ void compGcellAdmmRouteForce(
     const torch::PackedTensorAccessor32<float, 1, torch::RestrictPtrTraits> wirelength_weights,
     float route_weight,
     int *gbpinRoutes, int *gbpin2netId, int *routes, int *routesOffset,
-    int numGbPin, int N, int LAYER, int xSize, int ySize, int DIRECTION
+    int numGbPin, int numNets, int N, int LAYER, int xSize, int ySize, int DIRECTION
 ) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < numGbPin) {
         int netId = gbpin2netId[idx];
-        routes += routesOffset[netId];
-        if (routes[0] == -1) {
+        if (netId < 0 || netId >= numNets) return;
+        int routeBegin = routesOffset[netId];
+        int routeEnd = routesOffset[netId + 1];
+        if (routeBegin < 0 || routeEnd <= routeBegin) return;
+        int *netRoutes = routes + routeBegin;
+        if (netRoutes[0] == -1) {
             return;
         }
         gbpinRoutes += idx * 6;
@@ -267,7 +271,9 @@ __global__ void compGcellAdmmRouteForce(
         // decoded segment's span indexes dist_weights / wirelength_weights, which the caller
         // sizes from the gcell grid, and its endpoints index the overflow / capacity maps --
         // none of that was bounds-checked.  Skip a suspect record instead of dereferencing it.
-        const int numRouteEntries = routes[0];
+        const int routeCapacity = routeEnd - routeBegin;
+        const int numRouteEntries = netRoutes[0];
+        if (numRouteEntries < 1 || numRouteEntries > routeCapacity) return;
         if (numGbpinRoutes < 0 || numGbpinRoutes > 4) numGbpinRoutes = 0;
         for (int i = 1; i < 1 + numGbpinRoutes; i++) {
             int routeId = gbpinRoutes[i];
@@ -278,21 +284,35 @@ __global__ void compGcellAdmmRouteForce(
             }
             // stale / corrupt id: not an odd segment-start offset inside the live slab
             if (routeId < 1 || routeId + 1 >= numRouteEntries) continue;
-            int p = routes[routeId];
+            int p = netRoutes[routeId];
+            if (p < 0 || p >= LAYER * N * N) continue;
             int l = p / N / N, x = p % (N * N) / N, y = p % N;
+            if (l < 0 || l >= LAYER || x < 0 || x >= N || y < 0 || y >= N) continue;
             if (!(l & 1) ^ DIRECTION) cudaSwapInt(x, y);
             int lx = x, hx = x, ly = y, hy = y;
             if ((l & 1) ^ DIRECTION) {
-                hy += routes[routeId + 1];
+                hy += netRoutes[routeId + 1];
             } else {
-                hx += routes[routeId + 1];
+                hx += netRoutes[routeId + 1];
+            }
+
+            if (hx < lx) {
+                cudaSwapInt(lx, hx);
+                reverseRoute = !reverseRoute;
+            }
+            if (hy < ly) {
+                cudaSwapInt(ly, hy);
+                reverseRoute = !reverseRoute;
             }
 
             // a decoded segment must sit inside the gcell grid and inside the weight tables
             if (lx < 0 || ly < 0 || hx < 0 || hy < 0) continue;
             if (lx >= xSize || hx >= xSize || ly >= ySize || hy >= ySize) continue;
-            const int maxSpanIdx = min(dist_weights.size(0), wirelength_weights.size(0)) - 1;
-            if (hx - lx > maxSpanIdx || hy - ly > maxSpanIdx) continue;
+            const int xSpan = hx - lx;
+            const int ySpan = hy - ly;
+            if (xSpan >= dist_weights.size(0) || ySpan >= dist_weights.size(0)) continue;
+            if (xSpan + 1 >= wirelength_weights.size(0) ||
+                ySpan + 1 >= wirelength_weights.size(0)) continue;
             if (lx != hx && ly == hy) {
                 float score = 0.0;
                 float total_weight = 0.0;
@@ -708,8 +728,11 @@ torch::Tensor GPURouter::calcAdmmRouteGrad(torch::Tensor overflow_map,
         wirelength_weights.packed_accessor32<float, 1, torch::RestrictPtrTraits>(),
         route_weight,
         gbpinRoutes, gbpin2netId, routes, routesOffset,
-        numGbPin, N, LAYER, X, Y, DIRECTION
+        numGbPin, NET_NUM, N, LAYER, X, Y, DIRECTION
     );
+    cudaError_t admmError = cudaDeviceSynchronize();
+    TORCH_CHECK(admmError == cudaSuccess,
+                "compGcellAdmmRouteForce CUDA failure: ", cudaGetErrorString(admmError));
 
     torch::Tensor plpin_grad = torch::zeros({numPlPin, 2},
                         torch::dtype(torch::kFloat32).device(torch::Device(torch::kCUDA, DEVICE_ID)));

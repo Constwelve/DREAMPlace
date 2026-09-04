@@ -244,6 +244,10 @@
     "description" : "global-key preset applied when ruplace_flag is set: congestion (default) fills in the s14-calibrated non-RUPlace keys (target_density 1.0, gamma 0.92, gp_noise_ratio 0.03, stop_overflow 0.10, legalize_flag 1, 512x512 bins, one 1000-iteration nesterov global-place stage) for every key the user did not set explicitly; none disables it.  It never runs when ruplace_flag is 0, so plain DREAMPlace is unaffected",
     "default" : "congestion"
     },
+"ruplace_inflation_effort" : {
+    "description" : "inflation policy.  legacy (default) is the published fixed threshold/gamma inflation flow that every Innovus-scored result on this branch was produced with.  high, medium and low are opt-in adaptive levels: a PI controller inflates until a calibrated GPUGR/RUDY *proxy prediction* of Innovus NR-eGR H/V coverage falls below 1%, 2% and 5% respectively, then stops on proxy target, stagnation, capacity or round limits (ADMM is unchanged either way).  NOTE: these value names describe how aggressively the controller inflates and are NOT a promise about achieved overflow, and they are unrelated to the project acceptance levels that use the same words -- the proxy calibration has few support points and is optimistic on dense designs (adaptive medium predicted 0.65/0.56% where Innovus measured 6.11/3.14% on regression_s14/OpenC910)",
+    "default" : "legacy"
+    },
 "ruplace_xplace_root" : {
     "description" : "path to Xplace repository used as external GPU-router adapter",
     "default" : "../Xplace"
@@ -308,9 +312,49 @@
     "description" : "CUDA device id used by the Xplace GPU-router adapter",
     "default" : 0
     },
+"ruplace_gpu_lock_mode" : {
+    "description" : "granularity of the exclusive RUPlace GPU lock (results/locks/ruplace_gpu<N>.lock): call = lock around each GPU router call (default; concurrent placements on one GPU interleave), run = hold it from adapter construction until global placement ends (serializes whole placements), none = never lock, including the standalone route evaluators",
+    "default" : "call"
+    },
 "ruplace_external_route_eval" : {
     "description" : "run Xplace GGR in a subprocess to avoid CUDA context corruption during placement; s14-calibrated default of the RUPlace congestion preset (active whenever ruplace_flag=1)",
     "default" : 0
+    },
+"ruplace_inflate_proxy" : {
+    "description" : "source of the congestion map RUPlace inflation optimizes against: gpugr (default, unchanged), innovus (Innovus early-global-route map, the same signal that scores the campaign), or both (Innovus for inflation, GPUGR still for ADMM).  innovus/both require ruplace_inflation_effort=legacy and cost one ~60-100 s Innovus call per inflation round",
+    "default" : "gpugr"
+    },
+"ruplace_innovus_proxy_min_interval" : {
+    "description" : "minimum placement iterations between two Innovus early-global-route calls of the inflation proxy; an inflation round asking sooner reuses the cached map",
+    "default" : 100
+    },
+"ruplace_innovus_proxy_workdir" : {
+    "description" : "directory for the Innovus inflation proxy call artifacts (DEF, congestion dump, logs); empty uses <result_dir>/<design>/ruplace/innovus",
+    "default" : ""
+    },
+"ruplace_innovus_case" : {
+    "description" : "s14 case name passed to tools/ruplace_s14_innovus_eval.sh by the Innovus inflation proxy; empty derives it from def_input via data/s14/*.meta.json and fails if ambiguous",
+    "default" : ""
+    },
+"ruplace_innovus_repo" : {
+    "description" : "checkout holding data/s14/<case>.meta.json and data/s14/innovus_stage for the Innovus inflation proxy; empty auto-detects from the module location",
+    "default" : ""
+    },
+"ruplace_innovus_eval_script" : {
+    "description" : "path to the Innovus scoring script used by the inflation proxy; empty auto-detects tools/ruplace_s14_innovus_eval.sh",
+    "default" : ""
+    },
+"ruplace_innovus_proxy_timeout" : {
+    "description" : "seconds before one Innovus early-global-route call of the inflation proxy is abandoned (the proxy then reuses its cached map, or falls back to GPUGR); 0 disables the timeout",
+    "default" : 1800
+    },
+"ruplace_innovus_proxy_lock" : {
+    "description" : "advisory lock file serializing this session's Innovus inflation-proxy calls (the licence is shared); empty uses <repo>/results/locks/ruplace_innovus.lock",
+    "default" : ""
+    },
+"ruplace_innovus_proxy_lock_timeout" : {
+    "description" : "seconds to wait for the shared Innovus licence lock (results/locks/ruplace_innovus.lock) before giving up on a call; 0 waits forever",
+    "default" : 3600
     },
 "ruplace_inflate_start_overflow" : {
     "description" : "density overflow threshold to start RUPlace inflation; negative uses node_area_adjust_overflow; s14-calibrated default of the RUPlace congestion preset (active whenever ruplace_flag=1)",
@@ -372,6 +416,46 @@
     "description" : "how to combine horizontal and vertical overflow for H/V-aware inflation: max, mean, sum, h, or v; s14-calibrated default of the RUPlace congestion preset (active whenever ruplace_flag=1)",
     "default" : "max"
     },
+"ruplace_congestion_blockage" : {
+    "description" : "congestion-driven soft blockage: fraction of a density bin's capacity removed at full route congestion, so cells are pushed out of congested bins by the electrostatic density force instead of being inflated; 0 disables the lever and reproduces previous behaviour exactly",
+    "default" : 0.0
+    }, 
+"ruplace_congestion_blockage_threshold" : {
+    "description" : "route utilization (1.0 == at capacity) at which soft blockage starts ramping in; extra = ruplace_congestion_blockage * clamp((util - threshold) / (1 - threshold), 0, 1)",
+    "default" : 0.7
+    }, 
+"ruplace_congestion_blockage_max" : {
+    "description" : "per-bin cap on fixed-cell occupancy plus soft blockage, as a fraction of bin capacity; bins already occupied above this by fixed cells receive no blockage",
+    "default" : 0.5
+    }, 
+"ruplace_congestion_blockage_smooth" : {
+    "description" : "box-blur radius in density bins applied to the soft-blockage map after thresholding and capping; 0 disables smoothing",
+    "default" : 1
+    }, 
+"ruplace_congestion_blockage_decay" : {
+    "description" : "multiplier applied to the standing soft-blockage map on each refresh before the elementwise max with the fresh map, so stale blockages fade",
+    "default" : 0.5
+    }, 
+"ruplace_congestion_blockage_start_overflow" : {
+    "description" : "density overflow threshold below which RUPlace applies congestion soft blockage",
+    "default" : 0.5
+    }, 
+"ruplace_congestion_blockage_refresh_interval" : {
+    "description" : "refresh the congestion soft blockage every N maybe_adjust_area calls once density overflow is below ruplace_congestion_blockage_start_overflow, independently of the cell-inflation schedule; forces a router (or Innovus proxy) call on iterations where inflation produced no congestion map; 0 keeps the legacy behaviour of refreshing only when inflation routed",
+    "default" : 0
+    }, 
+"ruplace_congestion_blockage_max_refreshes" : {
+    "description" : "maximum number of material congestion soft-blockage map updates; 0 means unlimited",
+    "default" : 0
+    }, 
+"ruplace_congestion_blockage_stop_overflow" : {
+    "description" : "stop refreshing the congestion soft blockage once density overflow falls below this; 0 keeps refreshing until global placement ends",
+    "default" : 0.0
+    }, 
+"ruplace_congestion_blockage_budget_mode" : {
+    "description" : "how the soft-blocked area is charged against the placeable-area budget: shared (default, previous behaviour) removes it from both the filler budget and the cell-inflation whitespace budget; independent removes it from the filler budget only, so inflation keeps its pristine whitespace budget",
+    "default" : "shared"
+    }, 
 "ruplace_local_inflate_max_rounds" : {
     "description" : "maximum RUPlace local inflation rounds; s14-calibrated default of the RUPlace congestion preset (active whenever ruplace_flag=1)",
     "default" : 3

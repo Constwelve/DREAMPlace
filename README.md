@@ -274,8 +274,10 @@ global router (a patched fork of Xplace GPUGR, built automatically) routes the d
 iterations; its congestion map drives cell inflation and a routing-aware gradient, so the placer
 spreads cells where routing resources are actually scarce instead of where density is high.
 
-Turn it on with two keys in the JSON configuration - all other parameters default to a
-calibrated preset:
+Turn it on with two keys in the JSON configuration. Nothing else is required: inflation
+defaults to `ruplace_inflation_effort: "legacy"`, the published fixed threshold/gamma flow that
+every Innovus-scored result on this branch was produced with. The adaptive levels `high`,
+`medium` and `low` are opt-in and are not gate-tested.
 
 ```json
 {
@@ -291,11 +293,22 @@ cd install
 python dreamplace/Placer.py ../test/ruplace/s14_congestion_example.json
 ```
 
-On two SMIC14 designs evaluated with Cadence Innovus global routing, the default preset lowers
-horizontal/vertical routing overflow by 20-45% for about +2% routed wirelength relative to plain
-DREAMPlace. See [docs/RUPLACE.md](docs/RUPLACE.md) for the build flags, presets, the
-technology-dependent keys, and the reproduction recipe. Plain DREAMPlace behaviour is unchanged
-when `ruplace_flag` is 0.
+On two SMIC14 designs evaluated with Cadence Innovus global routing, this default (legacy)
+configuration lowered horizontal/vertical routing overflow by 20-45% for about +2% routed
+wirelength relative to plain DREAMPlace. The opt-in adaptive levels use conservative RUDY/GPUGR
+predictions and report whether their proxy target was met or inflation stagnated.
+
+> **Naming note -- `high`/`medium`/`low` here are not acceptance levels.** These value names
+> describe how aggressively the adaptive controller inflates, and they make **no guarantee about
+> the overflow actually achieved**. The project's acceptance levels happen to use the same three
+> words for measured Innovus NR-eGR overflow (high <= 1%, medium <= 2%, low <= 5%), and the two
+> meanings do not line up. `--ruplace-inflation-effort high` does **not** mean "meets 1%".
+> Measured counterexample: adaptive `medium` on `regression_s14` (OpenC910) stopped with its
+> proxy predicting 0.61%/0.53% and Innovus measured **6.11% H / 3.14% V** -- three times the
+> acceptance level named `low`, at +23% routed wirelength. Only `legacy` has gate-tested numbers.
+
+See [docs/RUPLACE.md](docs/RUPLACE.md) for build flags, effort levels, technology-dependent keys,
+and reproduction. Plain DREAMPlace behaviour is unchanged when `ruplace_flag` is 0.
 
 # Configurations
 

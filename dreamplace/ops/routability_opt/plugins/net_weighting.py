@@ -319,6 +319,7 @@ class CongestionNetWeightingPlugin(RoutabilityPlugin):
         if changed:
             self.weight_updates += 1
         active_ratio = ratio[active_nets]
+        active_score = net_score[active_nets]
         self.metrics = {
             "score_mode_id": {
                 "pin_mean": 0, "bbox_mean": 1, "bbox_pmean": 2,
@@ -345,6 +346,20 @@ class CongestionNetWeightingPlugin(RoutabilityPlugin):
                 active_ratio.max().item() if active_ratio.numel() else 1.0
             ),
             "score_scale": float(score_scale.item()),
+            # Raw congestion scores of the active nets, before normalization.
+            # With ruplace_net_weight_normalization=absolute the trigger point
+            # is a score of 1.0, so these say whether the mechanism can fire at
+            # all on this design/map.
+            "score_mean": float(
+                active_score.mean().item() if active_score.numel() else 0.0
+            ),
+            "score_max": float(
+                active_score.max().item() if active_score.numel() else 0.0
+            ),
+            "score_over_one_fraction": float(
+                (active_score > 1.0).to(net_score.dtype).mean().item()
+                if active_score.numel() else 0.0
+            ),
             "saturated_fraction": float(
                 self._saturated(active_ratio, ratio_limit)
                 .to(ratio.dtype).mean().item()

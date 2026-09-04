@@ -23,7 +23,9 @@ class PinRudyUnittest(unittest.TestCase):
         dtype = torch.float32
         pin_pos = torch.Tensor([[0.0, 0.0], [1.0, 2.0], [1.5, 0.2], [0.5, 3.1],
                                 [0.6, 1.1]]).to(dtype)
-        net2pin_map = np.array([np.array([0, 4]), np.array([1, 2, 3])])
+        net2pin_map = np.array(
+            [np.array([0, 4]), np.array([1, 2, 3])], dtype=object
+        )
         net_weights = torch.Tensor([1, 2]).to(dtype)
 
         # construct flat_net2pin_map and flat_net2pin_start_map

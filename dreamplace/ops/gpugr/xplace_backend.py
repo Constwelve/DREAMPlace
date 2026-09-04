@@ -3,7 +3,9 @@
 # @brief  Xplace GPU-router backend for RUPlace/standalone GPUGR.
 #
 
+import contextlib
 import ctypes
+import functools
 import logging
 import os
 import argparse
@@ -21,8 +23,16 @@ import torch.nn.functional as F
 
 try:
     from dreamplace.ops.gpugr import gr_metrics
+    from dreamplace.ops.gpugr.gpu_lock import (
+        acquire_gpu_lock, maybe_serialized_gpu, release_gpu_lock,
+        resolve_lock_mode, serialized_gpu,
+    )
 except ImportError:  # standalone / bundled invocation (run_gpugr.py runs this file directly)
     import gr_metrics
+    from gpu_lock import (
+        acquire_gpu_lock, maybe_serialized_gpu, release_gpu_lock,
+        resolve_lock_mode, serialized_gpu,
+    )
 
 
 class RUPlaceRouteResult(object):
@@ -115,6 +125,22 @@ def _load_xplace_ioparser(xplace_root):
     return module.IOParser
 
 
+def _serialize_gpu_calls(label):
+    """Run one GPU-router entry point inside the adapter's GPU section.
+
+    Only 'call' lock mode actually locks; see XplaceGGRAdapter._gpu_section.
+    Nested wrapped calls are safe -- every gradient method may call run_route --
+    because serialized_gpu() is re-entrant per thread.
+    """
+    def decorate(fn):
+        @functools.wraps(fn)
+        def wrapper(self, *args, **kwargs):
+            with self._gpu_section(label):
+                return fn(self, *args, **kwargs)
+        return wrapper
+    return decorate
+
+
 class XplaceGGRAdapter(object):
     """
     Adapter around Xplace's gpugr module. DREAMPlace remains the owner of
@@ -127,8 +153,22 @@ class XplaceGGRAdapter(object):
         self.data_collections = data_collections
         self.device = data_collections.pos[0].device
         self.xplace_root = self._resolve_xplace_root(params.ruplace_xplace_root)
+        self.external_route_eval = bool(int(getattr(params, "ruplace_external_route_eval", 1)))
+        self.gpu_lock_mode = resolve_lock_mode(
+            getattr(params, "ruplace_gpu_lock_mode", None))
+        self._gpu_lock_device = int(getattr(params, "ruplace_route_gpu", 0))
+        self._gpu_lock_label = "%s in-process GPUGR" % params.design_name()
+        self._gpu_lock_handle = None
+        if self.gpu_lock_mode == "run" and not self.external_route_eval:
+            # 'run': one exclusive lock for the whole global placement.
+            self._gpu_lock_handle = acquire_gpu_lock(
+                self._gpu_lock_device, self._gpu_lock_label)
 
-        self._import_xplace()
+        try:
+            self._import_xplace()
+        except Exception:
+            self.close()
+            raise
         self.rawdb = None
         self.gpdb = None
         self.parser = None
@@ -149,10 +189,61 @@ class XplaceGGRAdapter(object):
         self.original_node_size_y = data_collections.node_size_y.clone()
         self.original_pin_offset_x = data_collections.pin_offset_x.clone()
         self.original_pin_offset_y = data_collections.pin_offset_y.clone()
-        self.external_route_eval = bool(int(getattr(params, "ruplace_external_route_eval", 1)))
         self.external_route_id = 0
 
-        self._load_design()
+        try:
+            self._load_design()
+        except Exception:
+            self.close()
+            raise
+
+    def close(self):
+        """Release the exclusive GPU lock held by the in-process GGR mode.
+
+        Idempotent, and a no-op unless ruplace_gpu_lock_mode=run (the
+        default call mode locks per router call instead, so there is no
+        placement-wide handle to drop).  In run mode the lock is taken in
+        __init__ and used to be dropped
+        only in __del__, i.e. at the end of the whole Placer.py process, so
+        legalization, detailed placement and DEF writing -- plus the external
+        route evaluation the driver runs afterwards -- all queued behind the
+        other worker.  The RUPlace controller calls this once global placement
+        is done, after which the adapter is no longer used.
+        """
+        handle = getattr(self, "_gpu_lock_handle", None)
+        self._gpu_lock_handle = None
+        if handle is None:
+            return False
+        release_gpu_lock(handle)
+        logging.info("RUPlace released the in-process GPUGR GPU lock")
+        return True
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            pass
+
+    def _gpu_section(self, label):
+        """Context manager serializing one GPU router call ('call' lock mode).
+
+        A no-op when:
+          * mode is 'run'  -- __init__ already holds the lock for the whole
+            placement, and a nested acquire on a second fd would deadlock;
+          * mode is 'none' -- locking disabled everywhere;
+          * external route evaluation -- the evaluator subprocess takes the
+            lock itself, so holding it here would deadlock the child;
+          * the attribute is missing -- stub adapters built with
+            ``object.__new__`` in the unit tests must not touch a lock file.
+        """
+        mode = getattr(self, "gpu_lock_mode", None)
+        if mode != "call" or getattr(self, "external_route_eval", False):
+            return contextlib.nullcontext()
+        return serialized_gpu(
+            int(getattr(self, "_gpu_lock_device", 0)),
+            "%s [%s]" % (getattr(self, "_gpu_lock_label", "RUPlace in-process GPUGR"),
+                         label),
+        )
 
     def _resolve_xplace_root(self, configured):
         candidates = []
@@ -209,14 +300,18 @@ class XplaceGGRAdapter(object):
         if eval_verilog:
             io_params["verilog"] = os.path.abspath(eval_verilog)
         self.parser = self.IOParser()
-        self.rawdb, self.gpdb = self.parser.read(
-            io_params,
-            verbose_log=False,
-            lite_mode=True,
-            random_place=False,
-            num_threads=self.params.num_threads,
-        )
-        self.design_info = self.parser.preprocess_design_info(self.gpdb)
+        # Xplace's parser allocates GPU memory for gpdb/design_info, so this is
+        # a GPU section too: under 'run' mode it used to run inside the
+        # placement-wide lock taken by __init__.
+        with self._gpu_section("design load"):
+            self.rawdb, self.gpdb = self.parser.read(
+                io_params,
+                verbose_log=False,
+                lite_mode=True,
+                random_place=False,
+                num_threads=self.params.num_threads,
+            )
+            self.design_info = self.parser.preprocess_design_info(self.gpdb)
         self.base_lpos = self.design_info["node_lpos"].float().cpu()
         self.base_size = self.design_info["node_size"].float().cpu()
         self.x_num_nodes = int(self.base_lpos.shape[0])
@@ -438,7 +533,13 @@ class XplaceGGRAdapter(object):
 
     def run_route(self, pos):
         if self.external_route_eval:
+            # The evaluator subprocess takes the GPU lock itself; holding it
+            # here would deadlock it.
             return self._run_route_external(pos)
+        with self._gpu_section("run_route"):
+            return self._run_route_inprocess(pos)
+
+    def _run_route_inprocess(self, pos):
         tt = time.time()
         self.gpdb.apply_node_lpos(self._scaled_to_raw_lpos(pos))
         route_params = self._route_params()
@@ -586,7 +687,11 @@ class XplaceGGRAdapter(object):
         with open(log_path, "w") as log:
             log.write("$ %s\n\n" % " ".join(cmd))
             log.flush()
-            proc = subprocess.run(cmd, stdout=log, stderr=subprocess.STDOUT, text=True)
+            # Propagate the lock mode: the child has no params object.
+            child_env = dict(os.environ)
+            child_env["RUPLACE_GPU_LOCK_MODE"] = getattr(self, "gpu_lock_mode", "call")
+            proc = subprocess.run(cmd, stdout=log, stderr=subprocess.STDOUT,
+                                  text=True, env=child_env)
         if proc.returncode != 0 and not os.path.exists(result_path):
             raise RuntimeError("RUPlace external GGR failed with code %d; see %s" % (proc.returncode, log_path))
         if proc.returncode != 0:
@@ -655,6 +760,7 @@ class XplaceGGRAdapter(object):
             force_x_coeff, force_y_coeff,
         )
 
+    @_serialize_gpu_calls("connection route gradient")
     def connection_route_gradient(self, pos, refresh=False,
                                   overflow_threshold=0.0,
                                   max_wire_span=19,
@@ -1145,6 +1251,7 @@ class XplaceGGRAdapter(object):
         metrics.update(diagnostics)
         return grad, metrics
 
+    @_serialize_gpu_calls("admm gradient")
     def admm_gradient(self, pos, refresh=False):
         """Return Xplace's ADMM objective gradient in DREAMPlace node order.
 
@@ -1188,6 +1295,7 @@ class XplaceGGRAdapter(object):
             grad[num_nodes + dp_ids] = x_grad[x_ids, 1].to(device=grad.device, dtype=grad.dtype)
         return grad
 
+    @_serialize_gpu_calls("routed overflow contraction gradient")
     def routed_overflow_contraction_gradient(
             self, pos, refresh=False, mode="directional",
             overflow_threshold=0.0, overflow_exponent=1.0,
@@ -1737,7 +1845,12 @@ def _external_eval_main(argv):
 
 if __name__ == "__main__":
     if "--ruplace-external-eval" in sys.argv:
-        raise SystemExit(_external_eval_main(sys.argv[1:]))
+        gpu_index = sys.argv.index("--gpu") + 1 if "--gpu" in sys.argv else -1
+        device_id = int(sys.argv[gpu_index]) if gpu_index > 0 else 0
+        # No params object here: RUPLACE_GPU_LOCK_MODE, exported by the
+        # parent placement/driver, decides whether this evaluator serializes.
+        with maybe_serialized_gpu(resolve_lock_mode(), device_id, "external GPUGR"):
+            raise SystemExit(_external_eval_main(sys.argv[1:]))
 
 
 # Backward/neutral aliases used by the standalone GPUGR facade.

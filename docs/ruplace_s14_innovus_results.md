@@ -4,6 +4,22 @@ Result document for the `feat/ruplace-s14-innovus` branch. Every number below is
 value from the v110-v119 campaign; the campaign drivers are committed as
 `test/ruplace/campaigns/run_ruplace_v11*.sh`.
 
+All v110-v119 rows predate adaptive inflation and are explicitly run with
+`ruplace_inflation_effort=legacy`, which is also the shipped default -- so the numbers here are
+what the default configuration produces. The opt-in adaptive levels high/medium/low use
+calibrated RUDY/GPUGR proxy targets and must not be described as Innovus-certified results
+without a separate golden rerun.
+
+> **Naming note -- `high`/`medium`/`low` here are not acceptance levels.** These value names
+> describe how aggressively the adaptive controller inflates, and they make **no guarantee about
+> the overflow actually achieved**. The project's acceptance levels happen to use the same three
+> words for measured Innovus NR-eGR overflow (high <= 1%, medium <= 2%, low <= 5%), and the two
+> meanings do not line up. `--ruplace-inflation-effort high` does **not** mean "meets 1%".
+> Measured counterexample: adaptive `medium` on `regression_s14` (OpenC910) stopped with its
+> proxy predicting 0.61%/0.53% and Innovus measured **6.11% H / 3.14% V** -- three times the
+> acceptance level named `low`, at +23% routed wirelength. Only `legacy` has gate-tested numbers.
+
+
 **Benchmark data is private.** The SMIC14 cases live outside this repository
 (`~/data/benchmarks/s14/<case>/`) and their staged copies under `data/s14/` are not tracked.
 The only shipped file from that tree is `test/ruplace/s14_extra_sites.lef`, a 15-line site alias.

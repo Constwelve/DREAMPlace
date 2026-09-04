@@ -3,3 +3,7 @@ install(FILES ${INSTALL_SRCS} DESTINATION dreamplace/ops/routability_opt)
 
 file(GLOB PLUGIN_INSTALL_SRCS "${CMAKE_CURRENT_SOURCE_DIR}/plugins/*.py")
 install(FILES ${PLUGIN_INSTALL_SRCS} DESTINATION dreamplace/ops/routability_opt/plugins)
+
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/calibration
+        DESTINATION dreamplace/ops/routability_opt
+        FILES_MATCHING PATTERN "*.json")

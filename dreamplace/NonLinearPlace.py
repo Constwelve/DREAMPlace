@@ -319,7 +319,9 @@ class NonLinearPlace(BasicPlace.BasicPlace):
                                 logging.debug("All regions stop updating, finish global placement")
                                 return True
                         # a heuristic to detect divergence and stop early
-                        if len(metrics) > 50:
+                        # best_metric[0] is reset to None after a routability/RUPlace area
+                        # adjustment; skip the heuristic (no divergence) until it is recorded again
+                        if len(metrics) > 50 and best_metric[0] is not None:
                             cur_metric = metrics[-1][-1][-1]
                             prev_metric = metrics[-50][-1][-1]
                             # record HPWL and overflow increase, and check divergence
@@ -881,6 +883,18 @@ class NonLinearPlace(BasicPlace.BasicPlace):
                             sort_keys=True,
                         ),
                     )
+
+            # Global placement is over: drop router-side resources (chiefly the
+            # exclusive GPU lock the in-process GGR adapter holds) before
+            # legalization, detailed placement and DEF writing, so a concurrent
+            # worker -- and this run's own post-placement route evaluation --
+            # does not queue behind them.
+            routability_op = getattr(self.op_collections, "routability_opt_op", None)
+            if routability_op is not None and callable(getattr(routability_op, "close", None)):
+                try:
+                    routability_op.close()
+                except Exception as e:
+                    logging.warning("RUPlace router cleanup after global placement failed: %s", e)
 
             # recover node size and pin offset for legalization, since node size is adjusted in global placement
             if params.routability_opt_flag:

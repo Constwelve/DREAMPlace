@@ -8,6 +8,7 @@ import torch
 from dreamplace.ops.routability_opt.plugin_base import PluginContext, RoutabilityPlugin
 from dreamplace.ops.routability_opt.plugins import build_plugins
 from dreamplace.ops.routability_opt.proxy import build_congestion_proxy
+from dreamplace.ops.routability_opt.ruplace_op import close_quietly
 
 
 class RoutabilityOptimizationPipeline:
@@ -61,6 +62,53 @@ class RoutabilityOptimizationPipeline:
             "RUPlace plugin pipeline: proxy=%s plugins=%s",
             getattr(params, "ruplace_proxy", "gpugr"),
             ",".join(plugin.name for plugin in self.plugins),
+        )
+
+    def close(self):
+        """Release router resources once global placement is over.
+
+        Walks the proxy tree one level (CompositeProxy holds sub-proxies) and
+        closes any backend that owns the exclusive GPU lock; everything else is
+        a no-op because it has no close.
+        """
+        proxy_root = getattr(self, "proxy", None)
+        proxies = [proxy_root]
+        proxies.extend(getattr(proxy_root, "proxies", None) or [])
+        for proxy in proxies:
+            close_quietly(getattr(proxy, "backend", None), "GPUGR adapter")
+            close_quietly(getattr(proxy, "proxy", None), "Innovus eGR proxy")
+            close_quietly(proxy, "congestion proxy")
+
+    # Logged whenever a plugin reports a change, so a run's log shows the
+    # mechanism actually firing (the constructor line above only proves the
+    # pipeline was built) without waiting for the end-of-GP
+    # ROUTABILITY_PLUGIN_SUMMARY dump.
+    _ACTIVATION_LOG_KEYS = (
+        "weight_updates",
+        "effective_gamma",
+        "mean_ratio",
+        "max_ratio",
+        "saturated_fraction",
+        "score_scale",
+        "score_mean",
+        "score_max",
+        "score_over_one_fraction",
+    )
+
+    def _log_activation(self, plugin, phase):
+        metrics = getattr(plugin, "metrics", None) or {}
+        summary = " ".join(
+            "%s=%.4g" % (key, float(metrics[key]))
+            for key in self._ACTIVATION_LOG_KEYS
+            if isinstance(metrics.get(key), (int, float))
+            and not isinstance(metrics.get(key), bool)
+        )
+        logging.info(
+            "RUPlace plugin activation: %s phase=%s iteration=%d %s",
+            plugin.name,
+            phase,
+            self.iteration,
+            summary,
         )
 
     def _record_plugin_metrics(self, plugin):
@@ -120,6 +168,8 @@ class RoutabilityOptimizationPipeline:
             plugin_changed = bool(plugin.prepare_objective(pos, model, self.context))
             self._record_plugin_metrics(plugin)
             stats["objective_activations"] += int(plugin_changed)
+            if plugin_changed:
+                self._log_activation(plugin, "objective")
             changed = plugin_changed or changed
         return changed
 
@@ -144,6 +194,8 @@ class RoutabilityOptimizationPipeline:
             plugin_changed = bool(plugin.apply_gradient(pos, model, self.context))
             self._record_plugin_metrics(plugin)
             stats["gradient_activations"] += int(plugin_changed)
+            if plugin_changed:
+                self._log_activation(plugin, "gradient")
             changed = plugin_changed or changed
         return changed
 
@@ -186,6 +238,8 @@ class RoutabilityOptimizationPipeline:
             plugin_changed = bool(plugin.maybe_adjust_area(pos, model, self.context))
             self._record_plugin_metrics(plugin)
             stats["area_activations"] += int(plugin_changed)
+            if plugin_changed:
+                self._log_activation(plugin, "area")
             changed = plugin_changed or changed
             if plugin_changed:
                 self.context.begin_iteration(self.iteration)

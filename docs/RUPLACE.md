@@ -7,15 +7,20 @@ per-gcell utilization map, calibrated against Cadence Innovus early global route
 mechanisms: **threshold inflation** (cells in bins above a utilization threshold are grown, so
 density spreading moves them out of routing-scarce regions) and an **ADMM routing gradient**.
 
-**How to use it.** Set `routability_opt_flag: 1` and `ruplace_flag: 1`; everything else
-defaults to the calibrated *congestion* preset (see "Run RUPlace"). For a smaller wirelength
-cost use the *balanced* overrides. Three keys are technology-dependent and listed below.
+**How to use it.** Set `routability_opt_flag: 1` and `ruplace_flag: 1`; nothing else is
+required. Inflation defaults to `ruplace_inflation_effort: "legacy"`, the published fixed
+threshold/gamma flow that produced every Innovus-scored number in this document. The opt-in
+adaptive levels `high`, `medium` and `low` drive a controller towards a *calibrated proxy
+prediction* of Innovus `[NR-eGR]` H/V coverage below 1%, 2% and 5%; see the naming note under
+*Inflation effort* before using them. Three router keys remain technology-dependent and are
+listed below.
 
-**What to expect.** On SMIC14 designs judged by Innovus global route, the congestion preset
-gives roughly -40% H / -35% V routing overflow on a 270k-cell design and -20% / -23% on a
-735k-cell design, for about +2% routed wirelength versus plain DREAMPlace; the balanced preset
-about half the congestion gain for about +1.5% wirelength. Runs are 3-5x slower than plain
-global placement because of the in-loop routing.
+**What to expect.** On SMIC14 designs judged by Innovus global route, the default (legacy)
+configuration gives roughly -40% H / -35% V routing overflow on a 270k-cell design and -20% / -23%
+on a 735k-cell design, for about +2% routed wirelength versus plain DREAMPlace. Adaptive effort
+levels target calibrated `[NR-eGR]` proxy coverage and explicitly report target, stagnation, or
+capacity termination; they are not gate-tested and their proxy prediction is known to be
+optimistic on dense designs. Runs are 3-5x slower than plain global placement because of in-loop routing.
 
 ## Build
 
@@ -46,9 +51,15 @@ normal runs need no external Xplace checkout.
 `thirdparty/XplaceGPUGR` is vendored in-tree, not a submodule; `thirdparty/InstantGR`
 is optional and can stay uninitialised.
 
+RUPlace serializes in-process routing and standalone GPUGR evaluation with a
+cross-process lock at `results/locks/ruplace_gpu0.lock`. This is required on a
+single-GPU host because the native router and route-gradient kernels are not a
+supported concurrent workload. Set `RUPLACE_GPU_LOCK` only to move the shared
+lock file; all processes using the GPU must use the same path.
+
 ## Run RUPlace
 
-Enable RUPlace with two switches. Everything else is a default:
+Enable RUPlace with two switches. The default effort is adaptive `medium`:
 
 ```json
 {
@@ -64,8 +75,8 @@ cd install
 python dreamplace/Placer.py ../test/ruplace/s14_congestion_example.json
 ```
 
-`dreamplace/params.json` ships the s14-calibrated **congestion preset** as the
-default for every `ruplace_*` key, so no tuning flag is needed. When
+`dreamplace/params.json` ships the s14-calibrated router settings and the published
+`legacy` inflation flow as defaults, so no tuning flag is needed. When
 `ruplace_flag` is set, `dreamplace/Params.py` additionally fills in the
 non-RUPlace DREAMPlace keys the same calibration assumes - `target_density 1.0`,
 `gamma 0.92`, `gp_noise_ratio 0.03`, `stop_overflow 0.10`, `legalize_flag 1`,
@@ -77,15 +88,44 @@ is 0, so plain DREAMPlace behaviour is unchanged.
 
 `test/ruplace/s14_congestion_example.json` is a ready-made template.
 
-**Balanced alternative.** The default preset buys routability at some
-wirelength. For a point closer to the baseline, override two keys:
+**Inflation effort.** One user-facing inflation setting selects the inflation policy. The
+default needs no flag:
 
 ```json
-{
-  "ruplace_inflate_util_threshold": 0.8,
-  "ruplace_global_inflate_gamma": 0.25
-}
+{ "ruplace_inflation_effort": "legacy" }
 ```
+
+`legacy` is the published fixed threshold/gamma flow. It is the default, it is what every
+Innovus-scored number in `docs/ruplace_s14_innovus_results.md` was produced with, and it is the
+only setting a fresh clone reproduces.
+
+The adaptive levels are opt-in:
+
+```json
+{ "ruplace_inflation_effort": "medium" }
+```
+
+`high`/`medium`/`low` are calibrated proxy targets, not fresh Innovus certification. The
+controller stops inflation when its conservative GPUGR prediction reaches the target, when
+two inflation rounds show no material improvement, or when area/ratio/round limits are reached.
+RUDY screens intermediate checkpoints and may defer one redundant GPUGR invocation, but it can
+never declare target completion or stagnation; both require GPUGR confirmation. ADMM continues
+after inflation stops. Runtime history is written to
+`ruplace_inflation_status.json`.
+
+> **Naming note -- `high`/`medium`/`low` here are not acceptance levels.** These value names
+> describe how aggressively the adaptive controller inflates, and they make **no guarantee about
+> the overflow actually achieved**. The project's acceptance levels happen to use the same three
+> words for measured Innovus NR-eGR overflow (high <= 1%, medium <= 2%, low <= 5%), and the two
+> meanings do not line up. `--ruplace-inflation-effort high` does **not** mean "meets 1%".
+> Measured counterexample: adaptive `medium` on `regression_s14` (OpenC910) stopped with its
+> proxy predicting 0.61%/0.53% and Innovus measured **6.11% H / 3.14% V** -- three times the
+> acceptance level named `low`, at +23% routed wirelength. Only `legacy` has gate-tested numbers.
+
+The calibration behind the adaptive levels (`calibration/smic14_v1.json`) is built from two
+GPUGR support points plus RUDY samples, which is why it extrapolates badly on a design denser
+than either. Treat `high`/`medium`/`low` as experimental until it is rebuilt on the full set of
+Innovus-scored rows and given a wirelength guard.
 
 **Technology-dependent keys.** Three preset values are calibrated to SMIC14 and
 must be retuned on another technology:
@@ -142,19 +182,39 @@ cd install && python dreamplace/Placer.py ../test/ruplace/nvdla_s_repro.json
 The log must show the `RUPlace preset 'congestion': ...` lines, ~15-18 in-loop
 router calls (`RUPlace GR: call N, ...`) and a legalization step.
 
-Innovus EGR (`global`) reference for `nvdla_s_s14`, seed 1001, the published
-v115 `thr06_g070` run:
+That JSON is the whole configuration: `routability_opt_flag` and `ruplace_flag`
+are the only RUPlace keys, and `ruplace_inflation_effort` is left at its `legacy`
+default. Innovus EGR (`global`) reference for `nvdla_s_s14`, seed 1001, measured
+on a fresh clone built and run exactly this way:
 
 | metric | reference |
 | --- | --- |
-| wirelength | 4,602,377 |
-| horizontal overflow | 25,844 |
-| vertical overflow | 12,660 |
+| wirelength | 4,599,223 |
+| horizontal overflow | 26,056 |
+| vertical overflow | 12,268 |
+| `[NR-eGR]` overflow | 1.06% H / 0.52% V |
+
+The nearest tuned campaign point, v115 `thr06_g070` seed 1001, is
+4,602,377 / 25,844 / 12,660 -- the same operating point within seed noise.
+
+This is the two-flag operating point. It clears 2% Innovus NR-eGR overflow on both
+axes but not 1%; the sub-1% points in `docs/ruplace_s14_innovus_results.md` (e.g.
+`r3_thr05_g070`, 0.94% H / 0.44% V) need explicit `ruplace_max_inflate_ratio`,
+`ruplace_inflate_area_cap` and `ruplace_inflate_util_threshold` overrides on top of
+the default preset, and are not what a bare two-flag run produces.
 
 Reproduction is **within seed noise, not bit-exact**. `deterministic_flag` is 0
 in the published runs, so even a same-seed GPU rerun differs by roughly 1%, and
 the published numbers come from seeds 1001/1002; expect agreement within about
 1-3% per metric. `random_seed` is deliberately not part of the preset.
+
+The reference row above was measured on 2026-08-30, before the fourth fork patch
+(`cmake/xplace_gpugr_admm_bounds.patch`) landed. That patch skips stale route
+records on ripped-up nets, which changes the ADMM route gradient on this design,
+so a rerun on the current build is a consistency check against a moving reference
+rather than a bit-comparable reproduction. The configuration is unchanged --
+every parameter the two-flag JSON resolves to is identical to the state that
+produced these numbers -- but treat a few percent of disagreement as expected.
 
 ## Standalone GPUGR
 

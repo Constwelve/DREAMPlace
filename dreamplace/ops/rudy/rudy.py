@@ -57,7 +57,7 @@ class Rudy(nn.Module):
 
         #plt.imsave("rudy_initial.png", (self.initial_horizontal_utilization_map + self.initial_vertical_utilization_map).data.cpu().numpy().T, origin='lower')
 
-    def forward(self, pin_pos):
+    def forward(self, pin_pos, return_hv=False):
         horizontal_utilization_map = torch.zeros(
             (self.num_bins_x, self.num_bins_y),
             dtype=pin_pos.dtype,
@@ -86,8 +86,13 @@ class Rudy(nn.Module):
             vertical_utilization_map.add_(
                 self.initial_vertical_utilization_map)
 
-        # infinity norm
-        route_utilization_map = torch.max(horizontal_utilization_map.abs_(),
-                                          vertical_utilization_map.abs_())
+        # infinity norm.  The optional directional return is used by adaptive
+        # RUPlace inflation; the default remains byte-for-byte compatible.
+        horizontal_utilization_map.abs_()
+        vertical_utilization_map.abs_()
+        route_utilization_map = torch.max(horizontal_utilization_map,
+                                          vertical_utilization_map)
 
+        if return_hv:
+            return horizontal_utilization_map, vertical_utilization_map, route_utilization_map
         return route_utilization_map

@@ -5,6 +5,7 @@
 #
 
 import os
+import sys
 import unittest
 import pdb
 
@@ -14,4 +15,5 @@ print("search unittests in %s" % (start_dir))
 suite = loader.discover(start_dir, pattern='*_unittest.py')
 
 runner = unittest.TextTestRunner()
-runner.run(suite)
+result = runner.run(suite)
+sys.exit(0 if result.wasSuccessful() else 1)

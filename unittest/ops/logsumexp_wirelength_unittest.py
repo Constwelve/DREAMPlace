@@ -80,7 +80,9 @@ class LogSumExpWirelengthOpTest(unittest.TestCase):
         pin_pos = np.array(
             [[0.0, 0.0], [1.0, 2.0], [1.5, 0.2], [0.5, 3.1], [0.6, 1.1]],
             dtype=np.float32) * 10
-        net2pin_map = np.array([np.array([0, 4]), np.array([1, 2, 3])])
+        net2pin_map = np.array(
+            [np.array([0, 4]), np.array([1, 2, 3])], dtype=object
+        )
         pin2net_map = np.zeros(len(pin_pos), dtype=np.int32)
         for net_id, pins in enumerate(net2pin_map):
             for pin in pins:

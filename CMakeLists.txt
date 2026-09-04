@@ -255,9 +255,50 @@ if(RUPLACE_ENABLE_GPUGR)
       OUTPUT_QUIET ERROR_QUIET
     )
     if(NOT _xplace_gpugr_s14_patch_present EQUAL 0)
-      message(FATAL_ERROR "XplaceGPUGR source does not match the required SMIC14 GR fidelity patch")
+      # The ADMM bounds patch extends one hunk introduced by this patch, so a
+      # direct reverse check no longer applies once both are present.
+      execute_process(
+        COMMAND ${GIT_EXECUTABLE} apply --reverse --check --directory=thirdparty/XplaceGPUGR
+                ${CMAKE_CURRENT_SOURCE_DIR}/cmake/xplace_gpugr_admm_bounds.patch
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        RESULT_VARIABLE _xplace_gpugr_s14_plus_admm_present
+        OUTPUT_QUIET ERROR_QUIET
+      )
+      if(NOT _xplace_gpugr_s14_plus_admm_present EQUAL 0)
+        message(FATAL_ERROR "XplaceGPUGR source does not match the required SMIC14 GR fidelity patch")
+      endif()
+      message(STATUS "XplaceGPUGR SMIC14 GR fidelity fix plus ADMM bounds fix already present")
+    else()
+      message(STATUS "XplaceGPUGR SMIC14 GR fidelity fix already present")
     endif()
-    message(STATUS "XplaceGPUGR SMIC14 GR fidelity fix already present")
+  endif()
+  # Fourth fork patch: hard bounds and synchronous error reporting for the
+  # native ADMM route-gradient kernel on large routed designs.
+  set(_xplace_gpugr_admm_patch ${CMAKE_CURRENT_SOURCE_DIR}/cmake/xplace_gpugr_admm_bounds.patch)
+  execute_process(
+    COMMAND ${GIT_EXECUTABLE} apply --check --directory=thirdparty/XplaceGPUGR ${_xplace_gpugr_admm_patch}
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    RESULT_VARIABLE _xplace_gpugr_admm_patch_applicable
+    OUTPUT_QUIET ERROR_QUIET
+  )
+  if(_xplace_gpugr_admm_patch_applicable EQUAL 0)
+    execute_process(
+      COMMAND ${GIT_EXECUTABLE} apply --directory=thirdparty/XplaceGPUGR ${_xplace_gpugr_admm_patch}
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+      COMMAND_ERROR_IS_FATAL ANY
+    )
+    message(STATUS "Applied XplaceGPUGR ADMM bounds fix")
+  else()
+    execute_process(
+      COMMAND ${GIT_EXECUTABLE} apply --reverse --check --directory=thirdparty/XplaceGPUGR ${_xplace_gpugr_admm_patch}
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+      RESULT_VARIABLE _xplace_gpugr_admm_patch_present
+      OUTPUT_QUIET ERROR_QUIET
+    )
+    if(NOT _xplace_gpugr_admm_patch_present EQUAL 0)
+      message(FATAL_ERROR "XplaceGPUGR source does not match the required ADMM bounds patch")
+    endif()
+    message(STATUS "XplaceGPUGR ADMM bounds fix already present")
   endif()
   set(CMAKE_CUDA_ARCHITECTURES ${RUPLACE_GPUGR_CUDA_ARCHITECTURES} CACHE STRING "CUDA architectures" FORCE)
   enable_language(CUDA)

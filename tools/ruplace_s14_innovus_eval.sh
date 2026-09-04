@@ -3,7 +3,7 @@
 #   tools/ruplace_s14_innovus_eval.sh <case> <placed.def> <output_dir> [global|detailed]
 # Uses the routability_eval Innovus adapter with its two outside-the-repo defaults overridden
 # (staging root -> data/s14/innovus_stage, launcher -> tools/cadence_local.sh). Prints one CSV line:
-#   case,def,status,wirelength,horizontal_overflow,vertical_overflow,vias,runtime_sec
+#   case,def,status,wirelength,horizontal_overflow,vertical_overflow,vias,runtime_sec,egr_h_pct,egr_v_pct
 set -uo pipefail
 case_name="${1:?case}"; placed_def="${2:?placed def}"; out_dir="${3:?output dir}"; mode="${4:-global}"
 # Machine-specific root, env-overridable:
@@ -34,9 +34,12 @@ import json, sys
 case, d, path, rc = sys.argv[1:]
 try:
     r = json.load(open(path)); m = r.get("metrics", {})
+    # egr_h_pct/egr_v_pct are the Innovus NR-eGR H/V congestion percentages; appended at the
+    # END of the line so existing positional consumers of fields 1-8 keep working.
     print(",".join(str(x) for x in (case, d, r.get("status"), m.get("wirelength", ""), m.get("horizontal_overflow", ""),
-                                    m.get("vertical_overflow", ""), m.get("vias", ""), round(r.get("runtime_sec", 0), 1))))
+                                    m.get("vertical_overflow", ""), m.get("vias", ""), round(r.get("runtime_sec", 0), 1),
+                                    m.get("egr_horizontal_congestion", ""), m.get("egr_vertical_congestion", ""))))
     if r.get("error"): print("error:", r["error"], file=sys.stderr)
 except Exception as e:
-    print(",".join((case, d, "no_result(rc=%s)" % rc, "", "", "", "", "")))
+    print(",".join((case, d, "no_result(rc=%s)" % rc, "", "", "", "", "", "", "")))
 PY

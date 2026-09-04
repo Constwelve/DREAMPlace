@@ -1002,9 +1002,9 @@ class PlaceObj(nn.Module):
             initial_vertical_utilization_map,
             deterministic_flag=params.deterministic_flag)
 
-        def route_utilization_map_op(pos):
+        def route_utilization_map_op(pos, return_hv=False):
             pin_pos = self.op_collections.pin_pos_op(pos)
-            return congestion_op(pin_pos)
+            return congestion_op(pin_pos, return_hv=return_hv)
 
         return route_utilization_map_op
 

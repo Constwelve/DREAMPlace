@@ -214,6 +214,18 @@ def parse_args(argv=None):
             "abacus_legalize_flag is left at its params.json default."
         ),
     )
+    parser.add_argument(
+        "--detailed-place-flag",
+        type=int,
+        default=0,
+        help=(
+            "DREAMPlace detailed_place_flag for every DREAMPlace method (dp_hpwl/dp_rudy/ruplace*). "
+            "0 = legacy, no detailed placement; 1 = run the internal ABCDPlace detailed placer "
+            "(global_swap / k_reorder / independent_set_matching) after legalization and before the "
+            "solution DEF is written. Default is hard-coded 0 (deliberately not read from "
+            "params.json) so legacy behavior is stable regardless of params.json edits."
+        ),
+    )
     parser.add_argument("--route-rrr-iters", type=int, default=1)
     parser.add_argument(
         "--eval-route-rrr-iters",
@@ -229,6 +241,12 @@ def parse_args(argv=None):
     # params_default() so the driver and params.json cannot drift apart.  Since
     # params.json ships the s14-calibrated congestion preset, running with no
     # --ruplace-* flag reproduces that preset; explicit flags still override.
+    parser.add_argument(
+        "--ruplace-inflation-effort",
+        choices=["high", "medium", "low", "legacy"],
+        default=params_default("ruplace_inflation_effort"),
+        help="Adaptive inflation target level; legacy preserves fixed threshold/gamma behavior.",
+    )
     parser.add_argument(
         "--ruplace-inflate-start-overflow",
         type=float,
@@ -275,6 +293,136 @@ def parse_args(argv=None):
         choices=["max", "mean", "sum", "h", "v"],
         help="How to combine horizontal and vertical overflow for H/V-aware inflation.",
     )
+    parser.add_argument(
+        "--ruplace-congestion-blockage",
+        type=float,
+        default=float(params_default("ruplace_congestion_blockage")),
+        help=(
+            "Congestion-driven soft blockage: fraction of a bin's density capacity "
+            "removed at full congestion, pushing cells out of congested bins with the "
+            "electrostatic density force instead of inflating them. 0 disables."
+        ),
+    )
+    parser.add_argument(
+        "--ruplace-congestion-blockage-threshold",
+        type=float,
+        default=float(params_default("ruplace_congestion_blockage_threshold")),
+        help="Route utilization above which soft blockage starts ramping in.",
+    )
+    parser.add_argument(
+        "--ruplace-congestion-blockage-max",
+        type=float,
+        default=float(params_default("ruplace_congestion_blockage_max")),
+        help="Per-bin cap on fixed occupancy + soft blockage, as a bin-capacity fraction.",
+    )
+    parser.add_argument(
+        "--ruplace-congestion-blockage-smooth",
+        type=int,
+        default=int(params_default("ruplace_congestion_blockage_smooth")),
+        help="Box-blur radius, in density bins, applied to the soft-blockage map.",
+    )
+    parser.add_argument(
+        "--ruplace-congestion-blockage-decay",
+        type=float,
+        default=float(params_default("ruplace_congestion_blockage_decay")),
+        help="Multiplier applied to the standing blockage map on each refresh.",
+    )
+    parser.add_argument(
+        "--ruplace-congestion-blockage-start-overflow",
+        type=float,
+        default=float(params_default("ruplace_congestion_blockage_start_overflow")),
+        help="Only apply soft blockage once GP density overflow drops below this.",
+    )
+    parser.add_argument(
+        "--ruplace-congestion-blockage-refresh-interval",
+        type=int,
+        default=int(params_default("ruplace_congestion_blockage_refresh_interval")),
+        help=(
+            "Refresh the soft blockage every N area-adjust calls, independently of "
+            "the cell-inflation schedule (forces a router / Innovus-proxy call when "
+            "inflation produced no map). 0 keeps the legacy inflation-coupled refresh."
+        ),
+    )
+    parser.add_argument(
+        "--ruplace-congestion-blockage-max-refreshes",
+        type=int,
+        default=int(params_default("ruplace_congestion_blockage_max_refreshes")),
+        help="Cap on material soft-blockage map updates; 0 is unlimited.",
+    )
+    parser.add_argument(
+        "--ruplace-congestion-blockage-stop-overflow",
+        type=float,
+        default=float(params_default("ruplace_congestion_blockage_stop_overflow")),
+        help="Stop refreshing the soft blockage once GP overflow falls below this; 0 never stops.",
+    )
+    parser.add_argument(
+        "--ruplace-congestion-blockage-budget-mode",
+        default=params_default("ruplace_congestion_blockage_budget_mode"),
+        choices=["shared", "independent"],
+        help=(
+            "Charge the blocked area against the filler budget and the inflation "
+            "whitespace budget (shared, default) or against the filler budget only "
+            "(independent)."
+        ),
+    )
+    # ---- plugin pipeline (dreamplace/ops/routability_opt/pipeline.py) -----------------
+    # A non-empty --ruplace-plugins makes build_routability_opt_op() return
+    # RoutabilityOptimizationPipeline INSTEAD OF RUPlaceController, so the legacy
+    # inflation / soft-blockage / ADMM flags above are inert on such a run.
+    parser.add_argument(
+        "--ruplace-plugins",
+        default="",
+        help=(
+            "Comma-separated routability plugin names (e.g. net_weighting). Empty "
+            "(default) keeps the legacy RUPlace controller; non-empty REPLACES it "
+            "with the plugin pipeline, which has no inflation, no soft blockage and "
+            "no ADMM."
+        ),
+    )
+    parser.add_argument(
+        "--ruplace-proxy",
+        default=params_default("ruplace_proxy"),
+        help="Congestion proxy for the plugin pipeline: gpugr, xplace, innovus, rudy, pin_density, nctugr, rudy_pin.",
+    )
+    parser.add_argument(
+        "--ruplace-proxy-refresh-interval",
+        type=int,
+        default=int(params_default("ruplace_proxy_refresh_interval")),
+        help="Objective evaluations between congestion-proxy refreshes (each refresh is one router call).",
+    )
+    parser.add_argument(
+        "--ruplace-plugin-start-overflow",
+        type=float,
+        default=float(params_default("ruplace_plugin_start_overflow")),
+        help="Density overflow at or below which pipeline plugins become active; 1.0 = always on.",
+    )
+    parser.add_argument("--ruplace-net-weight-freq", type=int, default=int(params_default("ruplace_net_weight_freq")))
+    parser.add_argument("--ruplace-net-weight-gamma", type=float, default=float(params_default("ruplace_net_weight_gamma")))
+    parser.add_argument("--ruplace-net-weight-decay", type=float, default=float(params_default("ruplace_net_weight_decay")))
+    parser.add_argument("--ruplace-net-weight-min-ratio", type=float, default=float(params_default("ruplace_net_weight_min_ratio")))
+    parser.add_argument("--ruplace-net-weight-max", type=float, default=float(params_default("ruplace_net_weight_max")))
+    parser.add_argument(
+        "--ruplace-net-weight-normalization",
+        default=params_default("ruplace_net_weight_normalization"),
+        choices=["absolute", "design_mean"],
+    )
+    parser.add_argument(
+        "--ruplace-net-weight-phase",
+        default=params_default("ruplace_net_weight_phase"),
+        choices=["post_gradient", "pre_objective"],
+    )
+    parser.add_argument(
+        "--ruplace-net-weight-score-mode",
+        default=params_default("ruplace_net_weight_score_mode"),
+        choices=["pin_mean", "bbox_mean", "bbox_pmean"],
+    )
+    parser.add_argument("--ruplace-net-weight-bbox-power", type=float, default=float(params_default("ruplace_net_weight_bbox_power")))
+    parser.add_argument(
+        "--ruplace-net-weight-direction-mode",
+        default=params_default("ruplace_net_weight_direction_mode"),
+        choices=["aggregate", "max_hv", "mean_hv", "horizontal", "vertical"],
+    )
+    parser.add_argument("--ruplace-net-weight-smooth", type=int, default=int(params_default("ruplace_net_weight_smooth")))
     parser.add_argument("--ruplace-local-inflate-max-rounds", type=int, default=int(params_default("ruplace_local_inflate_max_rounds")))
     parser.add_argument(
         "--ruplace-allow-shrink",
@@ -332,8 +480,46 @@ def parse_args(argv=None):
         default=int(params_default("ruplace_gr_max_route_len_per_pin")),
         help="GGR maxRouteLenPerPin in gcells (130 = ISPD18 calibration, 256 for the coarse s14 grid).",
     )
+    # ---- Innovus early-global-route in-loop proxy (Phase 2 lever 1). ----
+    parser.add_argument(
+        "--ruplace-inflate-proxy",
+        choices=["gpugr", "innovus", "both"],
+        default=params_default("ruplace_inflate_proxy"),
+        help="Congestion map RUPlace inflation optimizes against: gpugr (default), "
+             "innovus (Innovus early global route -- the signal that scores the run), or "
+             "both (Innovus for inflation, GPUGR still for ADMM).  innovus/both need "
+             "--ruplace-inflation-effort legacy and add one ~60-100 s Innovus call per "
+             "inflation round.",
+    )
+    parser.add_argument(
+        "--ruplace-innovus-proxy-min-interval",
+        type=int,
+        default=int(params_default("ruplace_innovus_proxy_min_interval")),
+        help="Minimum placement iterations between two Innovus eGR calls; an inflation "
+             "round asking sooner reuses the cached map.",
+    )
+    parser.add_argument(
+        "--ruplace-innovus-case",
+        default=params_default("ruplace_innovus_case"),
+        help="s14 case for the Innovus proxy scorer; empty derives it from the input DEF "
+             "via data/s14/*.meta.json.",
+    )
+    parser.add_argument(
+        "--ruplace-innovus-proxy-workdir",
+        default=params_default("ruplace_innovus_proxy_workdir"),
+        help="Directory for Innovus proxy call artifacts; empty uses "
+             "<result_dir>/<design>/ruplace/innovus.",
+    )
     parser.add_argument("--ruplace-local-ovfl-nets-stop", type=float, default=float(params_default("ruplace_local_ovfl_nets_stop")))
     parser.add_argument("--ruplace-local-est-shorts-stop", type=float, default=float(params_default("ruplace_local_est_shorts_stop")))
+    parser.add_argument(
+        "--ruplace-gpu-lock-mode",
+        choices=["call", "run", "none"],
+        default=str(params_default("ruplace_gpu_lock_mode")),
+        help="Granularity of the exclusive GPU lock: call = per GPU router call "
+             "(default, lets concurrent workers share the GPU), run = hold it for "
+             "the whole global placement, none = never lock.",
+    )
     parser.add_argument(
         "--ruplace-external-route-eval",
         type=int,
@@ -669,6 +855,23 @@ def parse_override_value(value):
         return value
 
 
+def parse_ruplace_plugin_list(value):
+    """Normalize --ruplace-plugins into the JSON list dreamplace expects.
+
+    dreamplace/ops/routability_opt/plugins.parse_plugin_names() also accepts a
+    comma-separated string, but writing a real list keeps the emitted config
+    self-describing and keeps an empty selection falsy (legacy controller).
+    """
+    if isinstance(value, (list, tuple)):
+        items = [str(name).strip() for name in value]
+    else:
+        items = [name.strip() for name in str(value or "").split(",")]
+    names = [name.lower() for name in items if name]
+    if len(names) != len(set(names)):
+        raise ValueError("--ruplace-plugins contains duplicate names: %s" % value)
+    return names
+
+
 def parse_ruplace_param_overrides(text):
     overrides = {}
     for item in text.split(","):
@@ -744,7 +947,7 @@ def build_dreamplace_config(args, design, method, result_dir):
         "gp_noise_ratio": getattr(args, "gp_noise_ratio", 0.025),
         "global_place_flag": 1,
         "legalize_flag": int(getattr(args, "legalize_flag", 0)),
-        "detailed_place_flag": 0,
+        "detailed_place_flag": int(getattr(args, "detailed_place_flag", 0)),
         "stop_overflow": args.stop_overflow,
         "dtype": "float32",
         "plot_flag": 0,
@@ -788,6 +991,9 @@ def build_dreamplace_config(args, design, method, result_dir):
                 "ruplace_xplace_root": str(Path(args.xplace_root).resolve()),
                 "ruplace_router_backend": getattr(args, "ruplace_router_backend", params_default("ruplace_router_backend")),
                 "ruplace_route_gpu": getattr(args, "gpu", 0),
+                "ruplace_gpu_lock_mode": getattr(
+                    args, "ruplace_gpu_lock_mode", params_default("ruplace_gpu_lock_mode")
+                ),
                 "ruplace_gr_rrr_iters": args.route_rrr_iters,
                 "ruplace_gr_util_mode": getattr(args, "ruplace_gr_util_mode", params_default("ruplace_gr_util_mode")),
                 "ruplace_gr_grid": getattr(args, "ruplace_gr_grid", params_default("ruplace_gr_grid")),
@@ -798,8 +1004,20 @@ def build_dreamplace_config(args, design, method, result_dir):
                 "ruplace_gr_max_route_len_per_pin": int(
                     getattr(args, "ruplace_gr_max_route_len_per_pin", params_default("ruplace_gr_max_route_len_per_pin"))
                 ),
+                "ruplace_inflate_proxy": getattr(args, "ruplace_inflate_proxy", params_default("ruplace_inflate_proxy")),
+                "ruplace_innovus_proxy_min_interval": int(
+                    getattr(args, "ruplace_innovus_proxy_min_interval",
+                            params_default("ruplace_innovus_proxy_min_interval"))
+                ),
+                "ruplace_innovus_case": getattr(args, "ruplace_innovus_case", params_default("ruplace_innovus_case")),
+                "ruplace_innovus_proxy_workdir": getattr(
+                    args, "ruplace_innovus_proxy_workdir", params_default("ruplace_innovus_proxy_workdir")
+                ),
                 "ruplace_external_route_eval": external_route_eval,
                 "ruplace_inflate_start_overflow": args.ruplace_inflate_start_overflow,
+                "ruplace_inflation_effort": getattr(
+                    args, "ruplace_inflation_effort", params_default("ruplace_inflation_effort")
+                ),
                 "ruplace_max_inflate_ratio": args.ruplace_max_inflate_ratio,
                 "ruplace_min_inflate_ratio": args.ruplace_min_inflate_ratio,
                 "ruplace_global_inflate_gamma": args.ruplace_global_inflate_gamma,
@@ -814,6 +1032,54 @@ def build_dreamplace_config(args, design, method, result_dir):
                 "ruplace_congested_uniform_inflate_ratio": args.ruplace_congested_uniform_inflate_ratio,
                 "ruplace_hv_inflate_gamma": getattr(args, "ruplace_hv_inflate_gamma", params_default("ruplace_hv_inflate_gamma")),
                 "ruplace_hv_inflate_mode": getattr(args, "ruplace_hv_inflate_mode", params_default("ruplace_hv_inflate_mode")),
+                "ruplace_congestion_blockage": getattr(
+                    args, "ruplace_congestion_blockage", params_default("ruplace_congestion_blockage")
+                ),
+                "ruplace_congestion_blockage_threshold": getattr(
+                    args,
+                    "ruplace_congestion_blockage_threshold",
+                    params_default("ruplace_congestion_blockage_threshold"),
+                ),
+                "ruplace_congestion_blockage_max": getattr(
+                    args,
+                    "ruplace_congestion_blockage_max",
+                    params_default("ruplace_congestion_blockage_max"),
+                ),
+                "ruplace_congestion_blockage_smooth": getattr(
+                    args,
+                    "ruplace_congestion_blockage_smooth",
+                    params_default("ruplace_congestion_blockage_smooth"),
+                ),
+                "ruplace_congestion_blockage_decay": getattr(
+                    args,
+                    "ruplace_congestion_blockage_decay",
+                    params_default("ruplace_congestion_blockage_decay"),
+                ),
+                "ruplace_congestion_blockage_start_overflow": getattr(
+                    args,
+                    "ruplace_congestion_blockage_start_overflow",
+                    params_default("ruplace_congestion_blockage_start_overflow"),
+                ),
+                "ruplace_congestion_blockage_refresh_interval": getattr(
+                    args,
+                    "ruplace_congestion_blockage_refresh_interval",
+                    params_default("ruplace_congestion_blockage_refresh_interval"),
+                ),
+                "ruplace_congestion_blockage_max_refreshes": getattr(
+                    args,
+                    "ruplace_congestion_blockage_max_refreshes",
+                    params_default("ruplace_congestion_blockage_max_refreshes"),
+                ),
+                "ruplace_congestion_blockage_stop_overflow": getattr(
+                    args,
+                    "ruplace_congestion_blockage_stop_overflow",
+                    params_default("ruplace_congestion_blockage_stop_overflow"),
+                ),
+                "ruplace_congestion_blockage_budget_mode": getattr(
+                    args,
+                    "ruplace_congestion_blockage_budget_mode",
+                    params_default("ruplace_congestion_blockage_budget_mode"),
+                ),
                 "ruplace_local_inflate_max_rounds": args.ruplace_local_inflate_max_rounds,
                 "ruplace_allow_shrink": args.ruplace_allow_shrink,
                 "ruplace_local_ovfl_nets_stop": args.ruplace_local_ovfl_nets_stop,
@@ -828,6 +1094,60 @@ def build_dreamplace_config(args, design, method, result_dir):
                 "ruplace_admm_anchor_weight": args.ruplace_admm_anchor_weight,
                 "ruplace_admm_anchor_update": getattr(args, "ruplace_admm_anchor_update", params_default("ruplace_admm_anchor_update")),
                 "ruplace_admm_anchor_decay": getattr(args, "ruplace_admm_anchor_decay", params_default("ruplace_admm_anchor_decay")),
+                # ---- plugin pipeline ------------------------------------------------
+                # A non-empty list selects RoutabilityOptimizationPipeline instead of
+                # RUPlaceController (dreamplace/ops/routability_opt/__init__.py), which
+                # drops legacy inflation, soft blockage and ADMM for this run.
+                "ruplace_plugins": parse_ruplace_plugin_list(
+                    getattr(args, "ruplace_plugins", "")
+                ),
+                "ruplace_proxy": getattr(args, "ruplace_proxy", params_default("ruplace_proxy")),
+                "ruplace_proxy_refresh_interval": int(getattr(
+                    args, "ruplace_proxy_refresh_interval",
+                    params_default("ruplace_proxy_refresh_interval"),
+                )),
+                "ruplace_plugin_start_overflow": float(getattr(
+                    args, "ruplace_plugin_start_overflow",
+                    params_default("ruplace_plugin_start_overflow"),
+                )),
+                "ruplace_net_weight_freq": int(getattr(
+                    args, "ruplace_net_weight_freq", params_default("ruplace_net_weight_freq")
+                )),
+                "ruplace_net_weight_gamma": float(getattr(
+                    args, "ruplace_net_weight_gamma", params_default("ruplace_net_weight_gamma")
+                )),
+                "ruplace_net_weight_decay": float(getattr(
+                    args, "ruplace_net_weight_decay", params_default("ruplace_net_weight_decay")
+                )),
+                "ruplace_net_weight_min_ratio": float(getattr(
+                    args, "ruplace_net_weight_min_ratio",
+                    params_default("ruplace_net_weight_min_ratio"),
+                )),
+                "ruplace_net_weight_max": float(getattr(
+                    args, "ruplace_net_weight_max", params_default("ruplace_net_weight_max")
+                )),
+                "ruplace_net_weight_normalization": getattr(
+                    args, "ruplace_net_weight_normalization",
+                    params_default("ruplace_net_weight_normalization"),
+                ),
+                "ruplace_net_weight_phase": getattr(
+                    args, "ruplace_net_weight_phase", params_default("ruplace_net_weight_phase")
+                ),
+                "ruplace_net_weight_score_mode": getattr(
+                    args, "ruplace_net_weight_score_mode",
+                    params_default("ruplace_net_weight_score_mode"),
+                ),
+                "ruplace_net_weight_bbox_power": float(getattr(
+                    args, "ruplace_net_weight_bbox_power",
+                    params_default("ruplace_net_weight_bbox_power"),
+                )),
+                "ruplace_net_weight_direction_mode": getattr(
+                    args, "ruplace_net_weight_direction_mode",
+                    params_default("ruplace_net_weight_direction_mode"),
+                ),
+                "ruplace_net_weight_smooth": int(getattr(
+                    args, "ruplace_net_weight_smooth", params_default("ruplace_net_weight_smooth")
+                )),
             }
         )
         gpugr_root = getattr(args, "ruplace_gpugr_root", None)
@@ -1250,11 +1570,16 @@ def run_xplace_eval(args, design, placed_def, work_dir, log_path, use_verilog=Tr
     eval_verilog = case.get("eval_verilog_input") or case.get("verilog_input")
     if use_verilog and eval_verilog:
         cmd.extend(["--_eval-verilog", str(Path(eval_verilog).resolve())])
+    eval_env = xplace_env(args.xplace_root)
+    # The evaluator subprocess has no params object; it reads this instead.
+    eval_env["RUPLACE_GPU_LOCK_MODE"] = str(
+        getattr(args, "ruplace_gpu_lock_mode", params_default("ruplace_gpu_lock_mode"))
+    )
     return run_command_capture(
         cmd,
         REPO_ROOT,
         log_path,
-        env=xplace_env(args.xplace_root),
+        env=eval_env,
         dry_run=args.dry_run,
         timeout_sec=getattr(args, "eval_timeout_sec", 0),
     )
@@ -2301,5 +2626,11 @@ def main():
 
 if __name__ == "__main__":
     if "--_eval-def" in sys.argv:
-        sys.exit(eval_def_cli(sys.argv[1:]))
+        from dreamplace.ops.gpugr.gpu_lock import maybe_serialized_gpu, resolve_lock_mode
+        gpu_index = sys.argv.index("--_eval-gpu") + 1 if "--_eval-gpu" in sys.argv else -1
+        device_id = int(sys.argv[gpu_index]) if gpu_index > 0 else 0
+        # No params object here: RUPLACE_GPU_LOCK_MODE from the driver decides.
+        with maybe_serialized_gpu(resolve_lock_mode(), device_id,
+                                  "standalone GPUGR evaluator"):
+            sys.exit(eval_def_cli(sys.argv[1:]))
     sys.exit(main())

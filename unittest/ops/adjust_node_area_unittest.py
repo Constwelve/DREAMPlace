@@ -26,7 +26,9 @@ class AdjustNodeAreaUnittest(unittest.TestCase):
         node_size_x = torch.Tensor([0.5, 0.5, 0.5]).to(dtype)
         node_size_y = torch.Tensor([0.05, 0.05, 0.05]).to(dtype)
 
-        node2pin_map = np.array([np.array([0, 4]), np.array([1, 2, 3])])
+        node2pin_map = np.array(
+            [np.array([0, 4]), np.array([1, 2, 3])], dtype=object
+        )
         num_movable_nodes = len(node2pin_map)
         num_filler_nodes = 1
         # assume no terminals

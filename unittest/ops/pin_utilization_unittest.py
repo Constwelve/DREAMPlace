@@ -24,7 +24,9 @@ class PinUtilizationUnittest(unittest.TestCase):
         dtype = torch.float32
 
         pos = torch.Tensor([[1, 10], [2, 20], [3, 30]]).to(dtype)
-        node2pin_map = np.array([np.array([0, 4]), np.array([1, 2, 3])])
+        node2pin_map = np.array(
+            [np.array([0, 4]), np.array([1, 2, 3])], dtype=object
+        )
         num_movable_nodes = len(node2pin_map)
         num_filler_nodes = 1
         num_nodes = num_movable_nodes + num_filler_nodes

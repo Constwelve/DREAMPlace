@@ -12,6 +12,9 @@ from torch.autograd import Function
 from torch.nn import functional as F
 
 import dreamplace.ops.electric_potential.electric_potential_cpp as electric_potential_cpp
+from dreamplace.ops.electric_potential.congestion_blockage import (
+    apply_blockage_to_density_map,
+)
 import dreamplace.configure as configure
 if configure.compile_configurations["CUDA_FOUND"] == "TRUE":
     import dreamplace.ops.electric_potential.electric_potential_cuda as electric_potential_cuda
@@ -157,7 +160,56 @@ class ElectricOverflow(nn.Module):
 
         self.deterministic_flag = deterministic_flag
 
+        # RUPlace congestion-driven soft blockage (opt-in, off by default).
+        # Set through set_congestion_blockage_map(); deliberately declared
+        # *before* reset() and never cleared by reset(), so the blockage
+        # survives the density-op reset that RUPlace triggers after an area
+        # adjustment.  While it is None this op is bit-for-bit unchanged.
+        self.congestion_blockage_map = None
+        self.congestion_blockage_max = 1.0
+        # fixed-cell-only density map (alias when no blockage, snapshot when
+        # blockage is on) so the caller can size the blockage against the
+        # capacity fixed cells already consume
+        self.fixed_density_map = None
+        # applied extra density in area units, [num_bins_x, num_bins_y]
+        self.congestion_blockage_applied = None
+
         self.reset()
+
+    def capacity_per_bin(self):
+        """target_density * bin_area -- the cell area one bin can hold."""
+        return self.target_density * (self.bin_size_x * self.bin_size_y)
+
+    def set_congestion_blockage_map(self, blockage_map, blockage_max=1.0):
+        """Install a per-bin capacity reduction map (bin-area fraction).
+
+        @param blockage_map [num_bins_x, num_bins_y] fraction of each bin's
+               capacity to remove, or None to disable.
+        @param blockage_max per-bin cap on fixed_fraction + blockage.
+        Invalidates initial_density_map so it is rebuilt (fixed cells + the new
+        blockage) on the next forward.
+        """
+        self.congestion_blockage_map = blockage_map
+        self.congestion_blockage_max = float(blockage_max)
+        self.initial_density_map = None
+        self.fixed_density_map = None
+        self.congestion_blockage_applied = None
+
+    def _apply_congestion_blockage(self):
+        """Fold the standing blockage map into initial_density_map."""
+        blockage_map = getattr(self, "congestion_blockage_map", None)
+        self.fixed_density_map = self.initial_density_map
+        if blockage_map is None or self.initial_density_map is None:
+            self.congestion_blockage_applied = None
+            return
+        # keep a pristine fixed-only copy for headroom accounting
+        self.fixed_density_map = self.initial_density_map.clone()
+        self.congestion_blockage_applied = apply_blockage_to_density_map(
+            self.initial_density_map,
+            blockage_map,
+            self.capacity_per_bin(),
+            getattr(self, "congestion_blockage_max", 1.0),
+        )
 
     def reset(self):
         sqrt2 = math.sqrt(2)
@@ -256,6 +308,9 @@ class ElectricOverflow(nn.Module):
             self.deterministic_flag)
         # scale density of fixed macros
         self.initial_density_map.mul_(self.target_density)
+        # RUPlace soft blockage rides on top of the fixed-cell density; no-op
+        # (and no allocation) unless set_congestion_blockage_map() was called
+        self._apply_congestion_blockage()
 
     def forward(self, pos):
         if self.initial_density_map is None:

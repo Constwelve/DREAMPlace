@@ -199,7 +199,9 @@ class GlobalSwapOpTest(unittest.TestCase):
         node_size_x = np.array([1.0, 2.0, 1.0]).astype(dtype)
         node_size_y = np.array([2.0, 2.0, 2.0]).astype(dtype)
         num_nodes = len(xx)
-        net2pin_map = np.array([np.array([0, 4]), np.array([1, 2, 3])])
+        net2pin_map = np.array(
+            [np.array([0, 4]), np.array([1, 2, 3])], dtype=object
+        )
         pin2net_map, flat_net2pin_map, flat_net2pin_start_map = flatten_2D_map(
             net2pin_map)
         node2pin_map = np.array(

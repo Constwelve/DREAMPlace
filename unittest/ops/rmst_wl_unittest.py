@@ -15,19 +15,25 @@ from torch.autograd import Function, Variable
 sys.path.append(
     os.path.dirname(os.path.dirname(os.path.dirname(
         os.path.abspath(__file__)))))
-from dreamplace.ops.rmst_wl import rmst_wl
+try:
+    from dreamplace.ops.rmst_wl import rmst_wl
+except ImportError:
+    rmst_wl = None
 sys.path.pop()
 
 import pdb
 
 
 class RmstWLOpTest(unittest.TestCase):
+    @unittest.skipIf(rmst_wl is None, "rmst_wl is disabled in dreamplace/ops/CMakeLists.txt")
     def test_rmst_wlRandom(self):
         dtype = np.float64
         pin_pos = np.array(
             [[0.0, 0.0], [1.0, 2.0], [1.5, 0.2], [0.5, 3.1], [0.6, 1.1]],
             dtype=dtype)
-        net2pin_map = np.array([np.array([0, 4]), np.array([1, 2, 3])])
+        net2pin_map = np.array(
+            [np.array([0, 4]), np.array([1, 2, 3])], dtype=object
+        )
 
         pin_x = pin_pos[:, 0]
         pin_y = pin_pos[:, 1]

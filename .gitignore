@@ -24,3 +24,22 @@ data/
 # NOTE: thirdparty/XplaceGPUGR is a vendored fork whose sources include prebuilt
 # lefdef/lemon archives under lib/ and *.a; they were added with `git add -f` and
 # stay tracked despite the patterns above.
+
+# Agent/session notes are deliberately not part of this branch.
+/CLAUDE.md
+/AGENTS.md
+
+# Campaign scripts live in test/ruplace/campaigns/.  Scratch run scripts written at
+# the repo root (the pre-s14 run_ruplace_v16..v109 series and their remote variants)
+# are the local record of archived sweeps and are never committed; keeping the top
+# level identical to upstream is the branch convention.
+/run_ruplace_*.sh
+/sync_launch_ruplace_*.sh
+
+# Pre-s14 routability-lab pilot configs; they live on feat/routability-lab.
+/configs/
+
+# Result artifacts: `results` above already covers the campaign tree; these are the
+# per-run outputs that land elsewhere when a driver is pointed at a custom result_dir.
+/results/
+/results_*/

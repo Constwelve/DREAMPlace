@@ -48,6 +48,41 @@ class GPUGRProxy(CachedProxy):
         return self.last_signal
 
 
+class InnovusEGRCongestionProxy(CachedProxy):
+    """Innovus early-global-route map as a plugin-pipeline congestion signal.
+
+    Same map the inflation path gets from ``ruplace_inflate_proxy=innovus``; the
+    GPUGR backend is still built because the DEF for each eGR call is written
+    through its placement database.  ``ruplace_innovus_proxy_min_interval``
+    rate-limits the (~60-100 s) Innovus call independently of
+    ``ruplace_proxy_refresh_interval``.
+    """
+
+    def __init__(self, params, placedb, data_collections):
+        super().__init__(getattr(params, "ruplace_proxy_refresh_interval", 20))
+        from dreamplace.ops.routability_opt.innovus_proxy import InnovusEGRProxy
+
+        self.backend = build_gpugr_backend(
+            params, placedb=placedb, data_collections=data_collections
+        )
+        self.proxy = InnovusEGRProxy(params, placedb, self.backend)
+
+    def evaluate(self, pos, iteration, refresh=False):
+        if self.should_refresh(iteration, refresh):
+            route = self.proxy.run_route(pos, iteration=iteration)
+            self.last_signal = CongestionSignal(
+                utilization_map=route.utilization_map,
+                overflow_map=route.overflow_map,
+                hv_overflow_map=getattr(route, "hv_overflow_map", None),
+                hv_utilization_map=getattr(route, "hv_utilization_map", None),
+                metrics=dict(getattr(route, "metrics", {})),
+                source="innovus",
+                native=route,
+            )
+            self.last_iteration = iteration
+        return self.last_signal
+
+
 class MapOpProxy(CachedProxy):
     def __init__(self, name, op, refresh_interval=1, pin_op=None):
         super().__init__(refresh_interval)
@@ -151,6 +186,8 @@ def build_congestion_proxy(params, placedb, data_collections, op_collections):
     refresh = int(getattr(params, "ruplace_proxy_refresh_interval", 20))
     if name in ("gpugr", "xplace"):
         return GPUGRProxy(params, placedb, data_collections)
+    if name in ("innovus", "innovus_egr"):
+        return InnovusEGRCongestionProxy(params, placedb, data_collections)
     if name == "rudy":
         return RudyProxy(
             params, placedb, data_collections, op_collections, refresh,

@@ -471,6 +471,10 @@ class ElectricPotential(ElectricOverflow):
                         )
                 else:
                     self.initial_density_map = self.compute_fence_region_map(self.fence_regions)
+                # compute_fence_region_map() bypasses compute_initial_density_map(),
+                # so the RUPlace soft blockage has to be folded in explicitly here.
+                # No-op unless set_congestion_blockage_map() was called.
+                self._apply_congestion_blockage()
             else:
                 self.compute_initial_density_map(pos)
             ## sync the initial density map with

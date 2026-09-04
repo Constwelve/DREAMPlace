@@ -47,7 +47,9 @@ class PinPosOpTest(unittest.TestCase):
     def test_pin_pos_random(self):
         dtype = torch.float32
         pos = np.array([[1, 10], [2, 20], [3, 30]], dtype=np.float32)
-        node2pin_map = np.array([np.array([0, 4]), np.array([1, 2, 3])])
+        node2pin_map = np.array(
+            [np.array([0, 4]), np.array([1, 2, 3])], dtype=object
+        )
         num_physical_nodes = len(node2pin_map)
         num_pins = 0
         for pins in node2pin_map:

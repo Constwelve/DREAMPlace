@@ -3,9 +3,14 @@
 # @brief  CPU-only checks for RUPlace helper logic.
 #
 
+import fcntl
+import logging
 import os
 import sys
+import tempfile
+import threading
 import unittest
+from unittest import mock
 
 try:
     import torch
@@ -16,10 +21,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 if torch is not None:
     from dreamplace.ops.gpugr.xplace_backend import XplaceGGRAdapter
+    from dreamplace.ops.routability_opt.pipeline import RoutabilityOptimizationPipeline
     from dreamplace.ops.routability_opt.ruplace_op import RUPlaceController, RUPlaceInflation
 
 import dreamplace.Params as Params
 from dreamplace.ops.gpugr.base import GPUGRRequest
+from dreamplace.ops.gpugr.gpu_lock import (
+    acquire_gpu_lock, maybe_serialized_gpu, release_gpu_lock, resolve_lock_mode,
+)
 from dreamplace.ops.gpugr.gpugr import build_gpugr_backend
 from dreamplace.ops.gpugr.instantgr_backend import InstantGRBackend
 
@@ -432,6 +441,9 @@ class XplaceGGRAdapterMappingTest(unittest.TestCase):
 
         placedb = Obj()
         placedb.num_nodes = 3
+        placedb.num_movable_nodes = 2
+        placedb.num_physical_nodes = 3
+        placedb.node_names = [b"u0", b"u1", b"fixed"]
 
         data = Obj()
         data.node_size_x = torch.tensor([2.0, 4.0, 6.0])
@@ -446,6 +458,9 @@ class XplaceGGRAdapterMappingTest(unittest.TestCase):
         adapter.base_lpos = torch.tensor([[0.0, 0.0], [10.0, 20.0], [30.0, 40.0]])
         adapter.base_size = torch.tensor([[1.0, 1.0], [2.0, 2.0], [3.0, 3.0]])
         adapter.dp_to_x = {0: 1, 1: 2}
+        adapter.x_movable_ids = torch.tensor([1, 2], dtype=torch.long)
+        adapter.gpdb = Obj()
+        adapter.gpdb.dieInfo = lambda: (0.0, 1000.0, 0.0, 1000.0)
 
         pos = torch.tensor([2.0, 4.0, 6.0, 8.0, 10.0, 12.0])
         raw_lpos = adapter._scaled_to_raw_lpos(pos)
@@ -513,6 +528,303 @@ class RUPlaceControllerADMMTest(unittest.TestCase):
         clipped = controller._clip_admm_gradient(grad)
         self.assertAlmostEqual(clipped.norm().item(), 5.0, places=6)
         self.assertTrue(torch.allclose(clipped, torch.tensor([3.0, 4.0, 0.0]), atol=1e-6))
+
+
+@unittest.skipIf(torch is None, "torch is not installed")
+class GPULockReleaseTest(unittest.TestCase):
+    """The in-process GGR lock must be dropped when global placement ends.
+
+    ``acquire_gpu_lock`` blocks forever, so a leaked lock would hang this suite
+    instead of failing it.  Every assertion therefore probes with a
+    non-blocking ``flock`` on a private fd (which conflicts with the adapter's
+    fd even inside one process) and only then re-acquires for real.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self._previous = os.environ.get("RUPLACE_GPU_LOCK")
+        self.lock_path = os.path.join(self._tmp.name, "gpu0.lock")
+        os.environ["RUPLACE_GPU_LOCK"] = self.lock_path
+
+    def tearDown(self):
+        if self._previous is None:
+            os.environ.pop("RUPLACE_GPU_LOCK", None)
+        else:
+            os.environ["RUPLACE_GPU_LOCK"] = self._previous
+        self._tmp.cleanup()
+
+    def assertLockFree(self):
+        with open(self.lock_path, "a+") as stream:
+            try:
+                fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                self.fail("GPU lock %s is still held" % self.lock_path)
+            fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+
+    def assertLockHeld(self):
+        with open(self.lock_path, "a+") as stream:
+            with self.assertRaises(BlockingIOError):
+                fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def locked_adapter(self):
+        adapter = object.__new__(XplaceGGRAdapter)
+        adapter._gpu_lock_handle = acquire_gpu_lock(0, "unit-test")
+        return adapter
+
+    def test_close_releases_lock_and_is_idempotent(self):
+        adapter = self.locked_adapter()
+        self.assertLockHeld()
+        self.assertTrue(adapter.close())
+        self.assertLockFree()
+        self.assertIsNone(adapter._gpu_lock_handle)
+        self.assertFalse(adapter.close())
+        self.assertLockFree()
+        # Now that the probe proved it cannot block: a real second acquire.
+        handle = acquire_gpu_lock(0, "unit-test-second")
+        release_gpu_lock(handle)
+
+    def test_close_without_lock_is_noop(self):
+        adapter = object.__new__(XplaceGGRAdapter)
+        adapter._gpu_lock_handle = None
+        self.assertFalse(adapter.close())
+
+    def test_controller_close_releases_adapter_lock(self):
+        controller = object.__new__(RUPlaceController)
+        controller.adapter = self.locked_adapter()
+        controller.innovus_proxy = None
+        self.assertLockHeld()
+        controller.close()
+        self.assertLockFree()
+        controller.close()
+        self.assertLockFree()
+
+    def test_controller_close_survives_failing_proxy(self):
+        class Boom(object):
+            def close(self):
+                raise RuntimeError("boom")
+
+        controller = object.__new__(RUPlaceController)
+        controller.adapter = self.locked_adapter()
+        controller.innovus_proxy = Boom()
+        controller.close()
+        self.assertLockFree()
+
+    def test_pipeline_close_releases_backend_lock(self):
+        proxy = Obj()
+        proxy.backend = self.locked_adapter()
+        pipeline = object.__new__(RoutabilityOptimizationPipeline)
+        pipeline.proxy = proxy
+        self.assertLockHeld()
+        pipeline.close()
+        self.assertLockFree()
+
+    def test_pipeline_close_walks_composite_proxy(self):
+        class Recorder(object):
+            def __init__(self):
+                self.closed = 0
+
+            def close(self):
+                self.closed += 1
+
+        backend = Recorder()
+        inner = Obj()
+        inner.backend = backend
+        composite = Obj()
+        composite.backend = None
+        composite.proxies = [inner]
+        pipeline = object.__new__(RoutabilityOptimizationPipeline)
+        pipeline.proxy = composite
+        pipeline.close()
+        self.assertEqual(backend.closed, 1)
+
+
+@unittest.skipIf(torch is None, "torch is not installed")
+class GPULockModeTest(unittest.TestCase):
+    """ruplace_gpu_lock_mode: 'call' (per router call), 'run' (whole GP), 'none'.
+
+    Like GPULockReleaseTest every check probes with a non-blocking flock on a
+    private fd, so a regression fails instead of hanging the suite.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.lock_path = os.path.join(self._tmp.name, "gpu0.lock")
+        self._env = {key: os.environ.get(key)
+                     for key in ("RUPLACE_GPU_LOCK", "RUPLACE_GPU_LOCK_MODE")}
+        os.environ["RUPLACE_GPU_LOCK"] = self.lock_path
+        os.environ.pop("RUPLACE_GPU_LOCK_MODE", None)
+
+    def tearDown(self):
+        for key, value in self._env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        self._tmp.cleanup()
+
+    # ---- probes ---------------------------------------------------------
+    def lock_is_held(self):
+        # Opening with "a+" creates the file: only call once the test no
+        # longer cares about its existence.
+        with open(self.lock_path, "a+") as stream:
+            try:
+                fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return True
+            fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+            return False
+
+    def assertLockHeld(self):
+        self.assertTrue(self.lock_is_held(), "GPU lock %s is not held" % self.lock_path)
+
+    def assertLockFree(self):
+        self.assertFalse(self.lock_is_held(), "GPU lock %s is still held" % self.lock_path)
+
+    def assertLockFileUntouched(self):
+        self.assertFalse(os.path.exists(self.lock_path),
+                         "GPU lock file %s was created" % self.lock_path)
+
+    def make_adapter(self, mode, external=False):
+        adapter = object.__new__(XplaceGGRAdapter)
+        adapter.gpu_lock_mode = mode
+        adapter.external_route_eval = external
+        adapter._gpu_lock_device = 0
+        adapter._gpu_lock_label = "unit-test in-process GPUGR"
+        adapter._gpu_lock_handle = None
+        return adapter
+
+    def run_init(self, mode):
+        """Drive the real __init__ up to _import_xplace, reporting lock state."""
+        seen = {}
+
+        def probe(adapter_self):
+            # Record existence first: lock_is_held() opens (and creates) the file.
+            seen["file_exists"] = os.path.exists(self.lock_path)
+            seen["held"] = self.lock_is_held()
+            seen["handle"] = adapter_self._gpu_lock_handle
+            raise RuntimeError("unit test stops before the Xplace import")
+
+        params = Obj()
+        params.ruplace_xplace_root = self._tmp.name
+        params.ruplace_external_route_eval = 0
+        params.ruplace_route_gpu = 0
+        params.ruplace_gpu_lock_mode = mode
+        params.design_name = lambda: "unit_test"
+        collections = Obj()
+        collections.pos = [torch.zeros(1)]
+        with mock.patch.object(XplaceGGRAdapter, "_import_xplace", probe):
+            with self.assertRaises(RuntimeError):
+                XplaceGGRAdapter(params, None, collections)
+        return seen
+
+    # ---- defaults -------------------------------------------------------
+    def test_params_default_is_call(self):
+        self.assertEqual(Params.Params().ruplace_gpu_lock_mode, "call")
+
+    def test_resolve_lock_mode_env_override_and_precedence(self):
+        self.assertEqual(resolve_lock_mode(), "call")
+        os.environ["RUPLACE_GPU_LOCK_MODE"] = "none"
+        self.assertEqual(resolve_lock_mode(), "none")
+        # An explicit params/CLI value still wins over the environment.
+        self.assertEqual(resolve_lock_mode("run"), "run")
+        os.environ["RUPLACE_GPU_LOCK_MODE"] = "bogus"
+        self.assertEqual(resolve_lock_mode(), "call")
+
+    def test_maybe_serialized_gpu_honours_mode(self):
+        with maybe_serialized_gpu("none", 0, "unit-test"):
+            pass
+        self.assertLockFileUntouched()
+        with maybe_serialized_gpu("call", 0, "unit-test"):
+            self.assertLockHeld()
+        self.assertLockFree()
+
+    # ---- __init__ -------------------------------------------------------
+    def test_call_mode_takes_no_lock_in_init(self):
+        seen = self.run_init("call")
+        self.assertIsNone(seen["handle"])
+        self.assertFalse(seen["held"])
+
+    def test_run_mode_still_locks_for_the_whole_run(self):
+        seen = self.run_init("run")
+        self.assertIsNotNone(seen["handle"])
+        self.assertTrue(seen["held"])
+        # __init__ closes the adapter when the import fails.
+        self.assertLockFree()
+
+    def test_none_mode_never_touches_the_lock_file(self):
+        seen = self.run_init("none")
+        self.assertIsNone(seen["handle"])
+        self.assertFalse(seen["file_exists"])
+        # The probe itself opened the path; drop it before the next check.
+        if os.path.exists(self.lock_path):
+            os.remove(self.lock_path)
+        adapter = self.make_adapter("none")
+        with adapter._gpu_section("run_route"):
+            pass
+        self.assertLockFileUntouched()
+
+    # ---- per-call sections ---------------------------------------------
+    def test_call_mode_locks_only_inside_run_route(self):
+        adapter = self.make_adapter("call")
+        states = []
+
+        def stub(pos):
+            states.append(self.lock_is_held())
+            return "route"
+
+        adapter._run_route_inprocess = stub
+        self.assertEqual(adapter.run_route(None), "route")
+        self.assertEqual(states, [True])
+        self.assertLockFree()
+
+    def test_run_mode_section_is_a_noop(self):
+        adapter = self.make_adapter("run")
+        with adapter._gpu_section("run_route"):
+            pass
+        self.assertLockFileUntouched()
+
+    def test_external_eval_never_locks_in_process(self):
+        adapter = self.make_adapter("call", external=True)
+        states = []
+
+        def stub(pos):
+            states.append(os.path.exists(self.lock_path))
+            return "external"
+
+        adapter._run_route_external = stub
+        self.assertEqual(adapter.run_route(None), "external")
+        self.assertEqual(states, [False])
+        self.assertLockFileUntouched()
+
+    def test_nested_wrapped_calls_do_not_deadlock(self):
+        """A gradient section calling run_route must not block on its own flock."""
+        adapter = self.make_adapter("call")
+        calls = []
+
+        def stub(pos):
+            calls.append(self.lock_is_held())
+            return "route"
+
+        adapter._run_route_inprocess = stub
+        done = threading.Event()
+        errors = []
+
+        def body():
+            try:
+                with adapter._gpu_section("admm gradient"):
+                    adapter.run_route(None)
+                    adapter.run_route(None)
+                done.set()
+            except BaseException as exc:  # pragma: no cover - failure path
+                errors.append(exc)
+
+        worker = threading.Thread(target=body, daemon=True)
+        worker.start()
+        worker.join(30)
+        self.assertEqual(errors, [])
+        self.assertTrue(done.is_set(), "nested GPU sections deadlocked")
+        self.assertEqual(calls, [True, True])
+        self.assertLockFree()
 
 
 class RUPlacePresetTest(unittest.TestCase):
@@ -603,6 +915,106 @@ class RUPlacePresetTest(unittest.TestCase):
             params = self._params({"ruplace_flag": 1, "ruplace_preset": "nope"})
         for key in list(self.PRESET) + ["global_place_stages"]:
             self.assertEqual(getattr(params, key), getattr(baseline, key), key)
+
+
+@unittest.skipIf(torch is None, "torch is not installed")
+class LgammaStopCriterionTest(unittest.TestCase):
+    """Regression guard: best_metric[0] is reset to None after a routability /
+    RUPlace area adjustment, and the divergence heuristic in
+    NonLinearPlace.Lgamma_stop_criterion used to dereference it unconditionally.
+
+    The criterion is a closure inside NonLinearPlace.__call__, so it is extracted
+    from the *source* file by AST and executed against stub collaborators. Reading
+    the file by explicit path keeps the test pinned to the source tree (never the
+    install/ copy) and needs no compiled extensions.
+    """
+
+    SOURCE = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "dreamplace",
+        "NonLinearPlace.py",
+    )
+
+    @staticmethod
+    def _extract(source_path, name):
+        import ast
+        import textwrap
+
+        with open(source_path) as stream:
+            source = stream.read()
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.FunctionDef) and node.name == name:
+                return textwrap.dedent(ast.get_source_segment(source, node))
+        raise AssertionError("%s not found in %s" % (name, source_path))
+
+    def _make_criterion(self, best_metric):
+        scope = {
+            "torch": torch,
+            "logging": logging,
+            "best_metric": best_metric,
+            "params": self._params(),
+            "placedb": self._placedb(),
+            "model": self._model(),
+        }
+        exec(self._extract(self.SOURCE, "Lgamma_stop_criterion"), scope)
+        return scope["Lgamma_stop_criterion"]
+
+    @staticmethod
+    def _params():
+        params = Obj()
+        params.stop_overflow = 0.1
+        params.target_density = 1.0
+        return params
+
+    @staticmethod
+    def _placedb():
+        placedb = Obj()
+        placedb.regions = []
+        return placedb
+
+    @staticmethod
+    def _model():
+        return Obj()
+
+    @staticmethod
+    def _metric(hpwl, overflow, max_density=2.0):
+        metric = Obj()
+        metric.hpwl = hpwl
+        metric.overflow = [overflow]
+        metric.max_density = [max_density]
+        return metric
+
+    def _metrics(self, cur_overflow, cur_hpwl):
+        """51 entries shaped [[metric]]; overflow rises from metrics[-50] to metrics[-1]."""
+        history = [[[self._metric(1.0e6, 0.30)]] for _ in range(50)]
+        history.append([[self._metric(cur_hpwl, cur_overflow)]])
+        return history
+
+    def test_none_best_metric_skips_heuristic(self):
+        # Lgamma_step below 100 so only the divergence heuristic can fire.
+        criterion = self._make_criterion([None])
+        self.assertFalse(criterion(0, self._metrics(cur_overflow=0.40, cur_hpwl=1.0e9)))
+
+    def test_none_best_metric_with_falling_overflow_matches_legacy(self):
+        # The only case both the pre-fix and post-fix code execute with a None
+        # best_metric: the overflow comparison short-circuits before the
+        # dereference, so the guard cannot change the result.
+        criterion = self._make_criterion([None])
+        self.assertFalse(criterion(0, self._metrics(cur_overflow=0.20, cur_hpwl=1.0e9)))
+
+    def test_divergence_still_detected_when_best_metric_is_recorded(self):
+        criterion = self._make_criterion([self._metric(1.0e6, 0.30)])
+        # overflow rises and hpwl > 2 * best hpwl -> legacy True
+        self.assertTrue(criterion(0, self._metrics(cur_overflow=0.40, cur_hpwl=3.0e6)))
+
+    def test_no_divergence_when_hpwl_within_two_times_best(self):
+        criterion = self._make_criterion([self._metric(1.0e6, 0.30)])
+        # overflow rises but hpwl <= 2 * best hpwl -> legacy False
+        self.assertFalse(criterion(0, self._metrics(cur_overflow=0.40, cur_hpwl=1.5e6)))
+
+    def test_short_history_returns_false(self):
+        criterion = self._make_criterion([None])
+        self.assertFalse(criterion(0, [[[self._metric(1.0e6, 0.30)]]]))
 
 
 if __name__ == "__main__":
